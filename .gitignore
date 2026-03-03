@@ -1,7 +1,3 @@
-iac/docker/.env
-iac/docker/.env.*
-!iac/docker/.env.example
-
 # .NET
 **/bin/
 **/obj/
