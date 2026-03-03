@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FluxoCaixa.Lancamentos.Application.Services</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FluxoCaixa.Lancamentos.Application\FluxoCaixa.Lancamentos.Application.csproj" />
+    <ProjectReference Include="..\..\FluxoCaixa.SharedKernel\FluxoCaixa.SharedKernel.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-preview.4.25258.110" />
+  </ItemGroup>
+</Project>

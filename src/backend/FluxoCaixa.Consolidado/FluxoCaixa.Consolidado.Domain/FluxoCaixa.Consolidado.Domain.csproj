@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FluxoCaixa.Consolidado.Domain</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- SharedKernel ainda usado para o ValueObject Dinheiro -->
+    <ProjectReference Include="..\..\FluxoCaixa.SharedKernel\FluxoCaixa.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

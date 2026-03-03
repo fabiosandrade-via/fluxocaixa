@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FluxoCaixa.Lancamentos.Api</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FluxoCaixa.Lancamentos.Application\FluxoCaixa.Lancamentos.Application.csproj" />
+    <ProjectReference Include="..\FluxoCaixa.Lancamentos.Application.Services\FluxoCaixa.Lancamentos.Application.Services.csproj" />
+    <ProjectReference Include="..\FluxoCaixa.Lancamentos.Infrastructure\FluxoCaixa.Lancamentos.Infrastructure.csproj" />
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.1.1" />
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="8.0.1" />
+  </ItemGroup>
+</Project>
