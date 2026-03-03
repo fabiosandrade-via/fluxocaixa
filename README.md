@@ -115,6 +115,13 @@ docker compose logs -f api-consolidado
 
 ---
 
+### 5. Evidências de telas
+
+![lancamento](./docs/imagens/fluxocaixa-lancamento.jpg)
+![consolidado](./docs/imagens/fluxocaixa-consolidado.jpg)
+![lancamento](./docs/imagens/fluxocaixa-lancamento-api.jpg)
+![consolidado](./docs/imagens/fluxocaixa-consolidado-api.jpg)
+
 ## Testando a API
 
 ### Registrar um crédito
