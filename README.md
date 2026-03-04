@@ -7,7 +7,7 @@ Sistema de controle de lançamentos financeiros (débitos/créditos) com relató
 ## Arquitetura
 
 **Padrão:** Microsserviços | DDD | Clean Architecture | Event-Driven  
-**Stack:** .NET 9 · C# 14 · Angular 19 · Kafka · PostgreSQL · Redis . MongoDB
+**Stack:** .NET 9 · C# 13 · Angular 19 · Kafka · PostgreSQL · Redis . MongoDB
 
 ![Arquitetura do Sistema](./docs/arquitetura/fluxoCaixa.png)
 
