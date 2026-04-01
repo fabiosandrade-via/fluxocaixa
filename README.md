@@ -1,10 +1,31 @@
-# FluxoCaixa — Controle de Fluxo de Caixa
+# FluxoCaixa — Arquitetura Escalável para Controle de Fluxo de Caixa
 
-Sistema de controle de lançamentos financeiros (débitos/créditos) com relatório de saldo diário consolidado.
+Sistema distribuído para controle de lançamentos financeiros (débitos/créditos) e geração de saldo diário consolidado, projetado com foco em escalabilidade, resiliência e desacoplamento.
 
 ---
+Contexto de Negócio
+---
 
-## Arquitetura
+Um comerciante precisa:
+
+- Registrar lançamentos financeiros (débito/crédito)
+- Consultar o saldo consolidado diário
+- Garantir disponibilidade mesmo sob falhas parciais
+- Suportar picos de 50 req/s com até 5% de perda aceitável
+
+---
+Capacidades de Negócio
+---
+| Capacidade               | Descrição                                        |
+| ------------------------ | ------------------------------------------------ |
+| Registrar Lançamento     | Persistir transações financeiras com integridade |
+| Consultar Saldo Diário   | Obter saldo consolidado por data                 |
+| Consolidar Movimentações | Processar eventos e gerar visão agregada         |
+| Escalar sob demanda      | Suportar aumento de carga sem degradação         |
+| Garantir disponibilidade | Isolar falhas entre domínios 
+
+---
+## Arquitetura da Solução
 
 **Padrão:** Microsserviços | DDD | Clean Architecture | Event-Driven  
 **Stack:** .NET 9 · C# 13 · Angular 19 · Kafka · PostgreSQL · Redis . MongoDB
@@ -50,6 +71,7 @@ iac/
 | Decisão | Justificativa |
 |---|---|
 | **Solutions separadas** | Cada microsserviço é uma solution .NET independente — deploy, versionamento e CI/CD isolados |
+| **Separação CQRS** | Escalabilidade independente, otimização por tipo de workload e desacoplamento total|
 | **ISP (SOLID)** | `ILancamentoService` e `IConsolidadoService` estão em `.Application` (interfaces); implementações em `.Application.Services` (projeto separado) |
 | **DIP + IoC** | `InfrastructureExtensions` registra repositórios e publishers — camadas superiores dependem de abstrações |
 | **Kafka como broker** | Desacopla Lançamentos do Consolidado — Lançamentos **nunca fica indisponível** se Consolidado cair |
