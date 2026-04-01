@@ -293,3 +293,9 @@ Pipeline de CI/CD automatizado: pull request aciona build, testes unitários, an
 ### Confluent Cloud (Kafka gerenciado)
 
 Em produção o Kafka seria substituído pelo Confluent Cloud na GCP, eliminando a gestão do Zookeeper e do broker. O código de produção e consumo Kafka já usa o `Confluent.Kafka` SDK — a troca seria apenas de connection string.
+
+## 🔒 Código-fonte
+
+Por decisão de segurança e propriedade intelectual, o código completo deste projeto não está público.
+
+Caso haja interesse em avaliação técnica mais aprofundada, posso disponibilizar acesso mediante solicitação.
