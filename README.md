@@ -124,55 +124,6 @@ Esses componentes não devem ser contabilizados apenas como novas linhas de infr
 
 O requisito de 50 req/s e até 5% de falhas permanece um critério do desafio, não um SLA de produção. Antes de assumir compromissos de disponibilidade, é necessário definir SLOs, RPO/RTO, retenção de dados, janela de suporte e orçamento aprovado. A arquitetura de transição permite começar pelos controles de segurança e serviços gerenciados prioritários, evoluindo redundância e capacidade conforme risco, evidências e demanda — sem declarar prontidão produtiva antes de validar esses pontos.
 
-## Fluxo de eventos e recuperação
-
-O Event Store (`public.eventos`) e o lançamento são gravados na mesma transação PostgreSQL. O Event Publisher publica eventos pendentes no Kafka e avança o checkpoint após o ACK. O Projetor consome o tópico, deduplica por `eventId` e persiste saldo e marca de processamento no MongoDB. O offset é confirmado após a persistência ou após o envio confirmado à DLQ.
-
-O desenho oferece entrega **at-least-once** e leitura eventualmente consistente; não garante disponibilidade se a API de escrita ou o PostgreSQL estiverem indisponíveis. O rebuild integral do read model ainda não é automatizado.
-
-Há duas operações distintas: republicação seletiva do Event Store e reprocessamento de uma falha já encaminhada à DLQ. Ambas são implementadas por workers e tópicos Kafka; não há endpoint HTTP nem tela administrativa.
-
-### Republicar evento do Event Store
-
-Use quando o evento ainda existe em `public.eventos` e precisa ser publicado novamente. Com a pilha ativa, execute na raiz do repositório:
-
-```powershell
-Set-Location .\iac\docker
-docker compose --env-file .env.local up -d --build event-publisher
-
-$eventId = [guid]"<evento_id>"
-$command = @{
-    replayId = [guid]::NewGuid()
-    eventId = $eventId
-    requestedBy = $env:USERNAME
-    reason = "Motivo da republicação"
-} | ConvertTo-Json -Compress
-$commandBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
-
-docker compose --env-file .env.local exec -T kafka bash -lc "printf '%s' '$commandBase64' | base64 -d | kafka-console-producer --bootstrap-server kafka:9092 --topic lancamentos.eventos.republicar"
-```
-
-O evento precisa ser `lancamento.registrado.v1` (schema 1) e ainda ter seu lançamento em `public.lancamentos`; o Publisher reconstrói o payload a partir dessas tabelas. Use um `replayId` novo para cada solicitação. Repetir um ID já publicado não publica novamente; após falha, corrija a causa e solicite novo replay.
-
-Confira o estado da solicitação e os logs:
-
-```powershell
-docker compose --env-file .env.local exec -T db-lancamentos psql -U lancamentos_user -d lancamentos_db -c "SELECT replay_id, evento_id, solicitante, motivo, estado, erro FROM public.solicitacoes_republicacao_eventos ORDER BY solicitado_em DESC LIMIT 20;"
-docker compose --env-file .env.local logs --since 5m event-publisher projetor
-```
-
-`estado = publicado` confirma o ACK do Kafka, não a aplicação no consolidado. Verifique também o log do Projetor e consulte o consolidado para a data do lançamento. O rebuild integral do read model não está automatizado.
-
-### Reprocessar falha da DLQ
-
-É um fluxo diferente: o `dlq-reprocessor` consome comandos do tópico `lancamentos.dlq.reprocessar`, registra auditoria em MongoDB (`reprocessamentos_dlq`) e republica no tópico `lancamentos-events`, preservando o `eventId`. O comando exige o envelope original da falha e justificativa; não basta informar o `eventId`. Identifique e corrija a causa antes de reprocessar. Não há endpoint nem tela administrativa.
-
-As rotas atuais usam `/api/v1/`. Consulte os documentos Swagger das APIs para o contrato vigente; novas versões e políticas de descontinuação não fazem parte deste case.
-
-### Configuração local dos workers
-
-O Compose lê `iac/docker/.env.local` para as conexões privadas dos workers. Esse arquivo pode conter segredos locais; não o sobrescreva. Se já existir, mescle as chaves necessárias a partir de `iac/docker/.env.example`. O Event Publisher precisa de `EventPublisher__ConnectionString`; Projetor e Reprocessador precisam de `MongoDB__ConnectionString` e `MongoDB__DatabaseName`; o Projetor também precisa de `ConnectionStrings__Redis`. A URI Mongo usada pelo Projetor precisa incluir `replicaSet=rs0` para as transações. O bootstrap Kafka e os tópicos são injetados pelo Compose. O Projetor possui sua própria implementação de persistência/projeção e referencia somente o contrato compartilhado de eventos, não os projetos da API de Consolidado.
-
 ## Como rodar localmente
 
 ### Pré-requisitos
@@ -181,13 +132,24 @@ O Compose lê `iac/docker/.env.local` para as conexões privadas dos workers. Es
 - Node.js 22+ (somente para desenvolvimento do frontend)
 - .NET SDK 10 (somente para desenvolvimento do backend)
 
+### Segurança: configuração exclusivamente local
+
+O `docker-compose.yml` deste repositório é uma configuração de demonstração local, **não adequada para produção nem para exposição à internet**. Ele contém credenciais de exemplo em texto claro para serviços como PostgreSQL, MongoDB e Grafana. Qualquer pessoa com acesso ao arquivo ou ao daemon Docker pode inspecionar configurações e variáveis dos containers; não reutilize esses valores, substitua-os por credenciais fortes e exclusivas mesmo em ambientes compartilhados e não os considere protegidos por estarem em variáveis de ambiente. As portas publicadas pelo Compose também não devem ser expostas a redes não confiáveis.
+
+O arquivo `iac/docker/.env.local` pode conter segredos e não deve ser enviado ao Git, incluído em imagens ou compartilhado em logs, capturas de tela e saídas de `docker compose config`/`docker inspect`. **Neste checkout, esse arquivo está atualmente versionado**; removê-lo do índice não apaga cópias já enviadas nem o histórico. Antes de compartilhar ou reutilizar o repositório, remova-o do versionamento, confirme que está ignorado pelo Git e troque/invalide quaisquer credenciais reais que possam ter sido incluídas. O `.gitignore` precisa cobrir explicitamente `.env.local`; uma regra que ignore apenas arquivos terminados em `.env` não cobre esse nome.
+
+Para implantação, injete segredos por um gerenciador de segredos ou mecanismo seguro do ambiente de execução, com permissões mínimas e rotação. Não grave tokens ou senhas de registry no Compose, no `.env` versionado, em Dockerfiles ou na linha de comando persistida.
+
+As imagens de terceiros usadas no Compose são referenciadas diretamente em registries públicos, e os serviços da aplicação são construídos localmente. Para implantação, publique e consuma as imagens aprovadas a partir de um registry privado, por exemplo Harbor; fixe versões imutáveis (preferencialmente digest), valide origem e vulnerabilidades e forneça autenticação ao pipeline/runtime por credenciais protegidas. O Compose atual não configura Harbor nem constitui uma cadeia de fornecimento de imagens pronta para produção.
+
 ### 1. Clonar e configurar variáveis
 
 ```powershell
 git clone <repo-url>
 cd fluxocaixa
 
-# Crie .env.local somente se ainda não existir; depois mescle/revise as chaves
+# Crie .env.local somente se ainda não existir; depois mescle/revise as chaves.
+# Nunca versione esse arquivo nem use as credenciais de exemplo fora do ambiente local.
 if (-not (Test-Path .\iac\docker\.env.local)) {
     Copy-Item .\iac\docker\.env.example .\iac\docker\.env.local
 }
@@ -351,6 +313,57 @@ O cenário de recuperação interrompe o serviço `projetor`, envia carga de esc
 Os resultados brutos das execuções ficam em [`docs/evidencias`](./docs/evidencias).
 ---
 
+## Fluxo de eventos e recuperação
+
+O Event Store (`public.eventos`) e o lançamento são gravados na mesma transação PostgreSQL. O Event Publisher publica eventos pendentes no Kafka e avança o checkpoint após o ACK. O Projetor consome o tópico, deduplica por `eventId` e persiste saldo e marca de processamento no MongoDB. O offset é confirmado após a persistência ou após o envio confirmado à DLQ.
+
+O desenho oferece entrega **at-least-once** e leitura eventualmente consistente; não garante disponibilidade se a API de escrita ou o PostgreSQL estiverem indisponíveis. O rebuild integral do read model ainda não é automatizado.
+
+Há duas operações distintas: republicação seletiva do Event Store e reprocessamento de uma falha já encaminhada à DLQ. Ambas são implementadas por workers e tópicos Kafka; não há endpoint HTTP nem tela administrativa.
+
+### Configuração local dos workers
+
+O Compose lê `iac/docker/.env.local` para as conexões privadas dos workers. Esse arquivo pode conter segredos locais; não o sobrescreva. Se já existir, mescle as chaves necessárias a partir de `iac/docker/.env.example`. O Event Publisher precisa de `EventPublisher__ConnectionString`; Projetor e Reprocessador precisam de `MongoDB__ConnectionString` e `MongoDB__DatabaseName`; o Projetor também precisa de `ConnectionStrings__Redis`. A URI Mongo usada pelo Projetor precisa incluir `replicaSet=rs0` para as transações. O bootstrap Kafka e os tópicos são injetados pelo Compose. O Projetor possui sua própria implementação de persistência/projeção e referencia somente o contrato compartilhado de eventos, não os projetos da API de Consolidado.
+
+
+### Republicar evento do Event Store
+
+Use quando o evento ainda existe em `public.eventos` e precisa ser publicado novamente. Com a pilha ativa, execute na raiz do repositório:
+
+```powershell
+Set-Location .\iac\docker
+docker compose --env-file .env.local up -d --build event-publisher
+
+$eventId = [guid]"<evento_id>"
+$command = @{
+    replayId = [guid]::NewGuid()
+    eventId = $eventId
+    requestedBy = $env:USERNAME
+    reason = "Motivo da republicação"
+} | ConvertTo-Json -Compress
+$commandBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
+
+docker compose --env-file .env.local exec -T kafka bash -lc "printf '%s' '$commandBase64' | base64 -d | kafka-console-producer --bootstrap-server kafka:9092 --topic lancamentos.eventos.republicar"
+```
+
+O evento precisa ser `lancamento.registrado.v1` (schema 1) e ainda ter seu lançamento em `public.lancamentos`; o Publisher reconstrói o payload a partir dessas tabelas. Use um `replayId` novo para cada solicitação. Repetir um ID já publicado não publica novamente; após falha, corrija a causa e solicite novo replay.
+
+Confira o estado da solicitação e os logs:
+
+```powershell
+docker compose --env-file .env.local exec -T db-lancamentos psql -U lancamentos_user -d lancamentos_db -c "SELECT replay_id, evento_id, solicitante, motivo, estado, erro FROM public.solicitacoes_republicacao_eventos ORDER BY solicitado_em DESC LIMIT 20;"
+docker compose --env-file .env.local logs --since 5m event-publisher projetor
+```
+
+`estado = publicado` confirma o ACK do Kafka, não a aplicação no consolidado. Verifique também o log do Projetor e consulte o consolidado para a data do lançamento. O rebuild integral do read model não está automatizado.
+
+### Reprocessar falha da DLQ
+
+É um fluxo diferente: o `dlq-reprocessor` consome comandos do tópico `lancamentos.dlq.reprocessar`, registra auditoria em MongoDB (`reprocessamentos_dlq`) e republica no tópico `lancamentos-events`, preservando o `eventId`. O comando exige o envelope original da falha e justificativa; não basta informar o `eventId`. Identifique e corrija a causa antes de reprocessar. Não há endpoint nem tela administrativa.
+
+As rotas atuais usam `/api/v1/`. Consulte os documentos Swagger das APIs para o contrato vigente; novas versões e políticas de descontinuação não fazem parte deste case.
+
+---
 ## Portas utilizadas
 
 | Serviço | Porta Host | Porta Container |
