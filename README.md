@@ -144,27 +144,25 @@ As imagens de terceiros usadas no Compose são referenciadas diretamente em regi
 
 ### 1. Clonar e configurar variáveis
 
-```powershell
+```bash
 git clone <repo-url>
 cd fluxocaixa
 
-# Crie .env.local somente se ainda não existir; depois mescle/revise as chaves.
-# Nunca versione esse arquivo nem use as credenciais de exemplo fora do ambiente local.
-if (-not (Test-Path .\iac\docker\.env.local)) {
-    Copy-Item .\iac\docker\.env.example .\iac\docker\.env.local
-}
+# Copiar e revisar credenciais
+cp iac/docker/.env iac/docker/.env.local
+# Edite .env.local se necessário
 ```
 
 ### 2. Subir todos os serviços
 
-```powershell
-Set-Location .\iac\docker
-docker compose --env-file .env.local up -d --build
+```bash
+cd iac/docker
+docker compose --env-file .env up -d --build
 ```
 
 ### 3. Verificar status
 
-```powershell
+```bash
 docker compose ps
 docker compose logs -f api-lancamentos
 docker compose logs -f api-consolidado
@@ -188,27 +186,49 @@ docker compose logs -f api-consolidado
 
 Execute no PowerShell; altere `tipo`, `valor`, `data` e `descricao` conforme o cenário:
 
-```powershell
-$body = @{
-    tipo = "Credito"
-    valor = 1500.00
-    data = "2026-03-01"
-    descricao = "Venda do dia"
-} | ConvertTo-Json
-
-Invoke-RestMethod -Method Post `
-    -Uri "http://localhost:5001/api/v1/lancamentos" `
-    -ContentType "application/json" `
-    -Body $body
+```bash
+curl -X POST http://localhost:5001/api/v1/lancamentos \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tipo": "Credito",
+    "valor": 1500.00,
+    "data": "2026-03-01",
+    "descricao": "Venda do dia"
+  }'
 ```
 
-### Consultar o consolidado
+### Registrar um débito
 
-```powershell
-Invoke-RestMethod "http://localhost:5002/api/v1/consolidado/2026-03-01"
-Invoke-RestMethod "http://localhost:5002/api/v1/consolidado/periodo?inicio=2025-01-01&fim=2025-01-31"
-Invoke-RestMethod "http://localhost:5001/health"
-Invoke-RestMethod "http://localhost:5002/health"
+```bash
+curl -X POST http://localhost:5001/api/v1/lancamentos \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tipo": "Debito",
+    "valor": 300.00,
+    "data": "2026-03-01",
+    "descricao": "Pagamento fornecedor"
+  }'
+```
+
+### Consultar o consolidado do dia
+
+```bash
+curl http://localhost:5002/api/v1/consolidado/2026-03-01
+```
+
+### Consultar período
+
+```bash
+curl "http://localhost:5002/api/v1/consolidado/periodo?inicio=2025-01-01&fim=2025-01-31"
+```
+
+### Health checks
+
+### Health checks
+
+```bash
+curl http://localhost:5001/health
+curl http://localhost:5002/health
 ```
 
 ### Evidências funcionais
