@@ -1,0 +1,19 @@
+# Bloqueia configs NuGet do Windows que causam erro de fallback folder
+**/nuget.config
+**/.nuget/
+**/NuGetPackages/
+
+# Artefatos de build locais
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+
+# Node
+**/node_modules/
+**/dist/
+**/.angular/
+
+# Outros
+**/.git/
+**/.env*

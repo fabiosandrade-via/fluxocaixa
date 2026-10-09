@@ -1,0 +1,327 @@
+version: "3.9"
+
+networks:
+  net-zookeeper:
+    driver: bridge
+  net-kafka:
+    driver: bridge
+  net-lancamentos:
+    driver: bridge
+  net-consolidado:
+    driver: bridge
+  net-observ:
+    driver: bridge
+
+volumes:
+  vol-db-lancamentos:
+  vol-mongo-consolidado:
+  vol-redis:
+  vol-kafka:
+  vol-zookeeper:
+  vol-prometheus:
+  vol-grafana:
+
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: fluxocaixa-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - vol-zookeeper:/var/lib/zookeeper/data
+    networks:
+      - net-zookeeper
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: fluxocaixa-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - vol-kafka:/var/lib/kafka/data
+    networks:
+      - net-zookeeper
+      - net-kafka
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: fluxocaixa-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - net-kafka
+    command:
+      - bash
+      - -ec
+      - |
+        sleep 10
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic lancamentos-events --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic lancamentos.eventos.republicar --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic lancamentos.dlq --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic lancamentos.dlq.reprocessar --partitions 1 --replication-factor 1
+    restart: "no"
+
+  db-lancamentos:
+    image: postgres:16-alpine
+    container_name: fluxocaixa-db-lancamentos
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: lancamentos_db
+      POSTGRES_USER: lancamentos_user
+      POSTGRES_PASSWORD: L4nc@m3nt0sP@ss!
+    volumes:
+      - vol-db-lancamentos:/var/lib/postgresql/data
+    networks:
+      - net-lancamentos
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lancamentos_user -d lancamentos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo-consolidado:
+    image: mongo:7.0
+    container_name: fluxocaixa-mongo-consolidado
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/usr/local/bin/fluxocaixa-mongo-entrypoint.sh"]
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: consolidado_user
+      MONGO_INITDB_ROOT_PASSWORD: C0ns0l1d@d0M0ng0!
+      MONGO_INITDB_DATABASE: consolidado_db
+    volumes:
+      - vol-mongo-consolidado:/data/db
+      - ./scripts/mongo-entrypoint.sh:/usr/local/bin/fluxocaixa-mongo-entrypoint.sh:ro
+    networks:
+      - net-consolidado
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME"
+          --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+          --eval 'try { if (rs.status().ok) quit(0); } catch (e) {
+          rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo-consolidado:27017"}]});
+          } quit(1)'
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: fluxocaixa-redis
+    restart: unless-stopped
+    command: redis-server --port 6380
+    ports:
+      - "6380:6380"
+    volumes:
+      - vol-redis:/data
+    networks:
+      - net-consolidado
+
+  api-lancamentos:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/lancamentos.Dockerfile
+    container_name: fluxocaixa-api-lancamentos
+    restart: unless-stopped
+    depends_on:
+      db-lancamentos:
+        condition: service_healthy
+    ports:
+      - "5001:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__LancamentosDb: Host=db-lancamentos;Port=5432;Database=lancamentos_db;Username=lancamentos_user;Password=L4nc@m3nt0sP@ss!
+    networks:
+      - net-lancamentos
+      - net-observ
+
+  api-consolidado:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/consolidado.Dockerfile
+    container_name: fluxocaixa-api-consolidado
+    restart: unless-stopped
+    depends_on:
+      mongo-consolidado:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "5002:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      MongoDB__ConnectionString: mongodb://consolidado_user:C0ns0l1d%40d0M0ng0!@mongo-consolidado:27017/consolidado_db?authSource=admin
+      MongoDB__DatabaseName: consolidado_db
+      MongoDB__ColecaoSaldos: saldos_consolidados
+      ConnectionStrings__Redis: redis:6380
+    networks:
+      - net-consolidado
+      - net-observ
+
+  event-publisher:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/event-publisher.Dockerfile
+    container_name: fluxocaixa-event-publisher
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    depends_on:
+      db-lancamentos:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      EventPublisher__ConnectionString: "Host=db-lancamentos;Port=5432;Database=lancamentos_db;Username=lancamentos_user;Password=L4nc@m3nt0sP@ss!"
+      EventPublisher__BootstrapServers: kafka:9092
+      EventPublisher__ReplayCommandTopic: lancamentos.eventos.republicar
+    networks:
+      - net-lancamentos
+      - net-kafka
+      - net-observ
+
+  projetor:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/projetor.Dockerfile
+    container_name: fluxocaixa-projetor
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    depends_on:
+      mongo-consolidado:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      MongoDB__ConnectionString: "mongodb://consolidado_user:C0ns0l1d%40d0M0ng0%21@mongo-consolidado:27017/consolidado_db?authSource=admin&replicaSet=rs0"
+      MongoDB__DatabaseName: consolidado_db
+      MongoDB__ColecaoSaldos: saldos_consolidados
+      MongoDB__ColecaoEventosProcessados: eventos_processados
+      ConnectionStrings__Redis: redis:6380
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__GroupId: consolidado-consumer-group
+      Kafka__Topic: lancamentos-events
+      Kafka__DlqTopic: lancamentos.dlq
+    networks:
+      - net-consolidado
+      - net-kafka
+      - net-observ
+
+  dlq-reprocessor:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/dlq-reprocessor.Dockerfile
+    container_name: fluxocaixa-dlq-reprocessor
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    depends_on:
+      mongo-consolidado:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      MongoDB__ConnectionString: "mongodb://consolidado_user:C0ns0l1d%40d0M0ng0%21@mongo-consolidado:27017/consolidado_db?authSource=admin&replicaSet=rs0"
+      MongoDB__DatabaseName: consolidado_db
+      DlqReprocessor__BootstrapServers: kafka:9092
+      DlqReprocessor__CommandTopic: lancamentos.dlq.reprocessar
+      DlqReprocessor__DestinationTopic: lancamentos-events
+    networks:
+      - net-consolidado
+      - net-kafka
+      - net-observ
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: iac/docker/dockerfiles/frontend.Dockerfile
+    container_name: fluxocaixa-frontend
+    restart: unless-stopped
+    ports:
+      - "4200:80"
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: fluxocaixa-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - vol-prometheus:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+    networks:
+      - net-observ
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: fluxocaixa-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: Gr@f@na@dm1n!
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - vol-grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - net-observ
+
+  k6:
+    image: grafana/k6:2.3.0
+    profiles: ["loadtest"]
+    depends_on:
+      - prometheus
+    environment:
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: "p(95),p(99),max"
+    volumes:
+      - ../../tests/load/k6:/scripts:ro
+      - ../../docs/evidencias:/results
+    networks:
+      - net-observ

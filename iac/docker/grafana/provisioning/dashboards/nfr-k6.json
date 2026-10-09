@@ -1,0 +1,324 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (test_name, run_id) (rate(k6_http_reqs_total{test_name=~\"$test_name\",run_id=~\"$run_id\"}[1m]))",
+          "legendFormat": "{{test_name}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Vazão HTTP (req/s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (test_name, run_id) (k6_http_req_duration_p95{test_name=~\"$test_name\",run_id=~\"$run_id\"})",
+          "legendFormat": "{{test_name}} / {{run_id}} p95",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (test_name, run_id) (k6_http_req_duration_p99{test_name=~\"$test_name\",run_id=~\"$run_id\"})",
+          "legendFormat": "{{test_name}} / {{run_id}} p99",
+          "refId": "B"
+        }
+      ],
+      "title": "Latência p95 / p99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (test_name, run_id) (k6_http_req_failed_rate{test_name=~\"$test_name\",run_id=~\"$run_id\"})",
+          "legendFormat": "{{test_name}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Taxa de falha HTTP",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (test_name, run_id) (k6_successful_responses_rate{test_name=~\"$test_name\",run_id=~\"$run_id\"})",
+          "legendFormat": "{{test_name}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Respostas esperadas (2xx / 201)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (test_name, run_id) (increase(k6_dropped_iterations_total{test_name=~\"$test_name\",run_id=~\"$run_id\"}[30m])) or (sum by (test_name, run_id) (k6_http_reqs_total{test_name=~\"$test_name\",run_id=~\"$run_id\"}) * 0)",
+          "legendFormat": "{{test_name}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Iterações descartadas",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (test_name, run_id) (increase(k6_accepted_requests_total{test_name=~\"$test_name\",run_id=~\"$run_id\"}[30m]))",
+          "legendFormat": "{{test_name}} / {{run_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Lançamentos aceitos (HTTP 201)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bool"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"lancamentos-api|consolidado-api\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Disponibilidade das APIs",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": [
+    "fluxocaixa",
+    "nfr",
+    "k6"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "Cenário",
+        "multi": true,
+        "name": "test_name",
+        "options": [],
+        "query": "label_values(k6_http_reqs_total, test_name)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "Execução",
+        "multi": true,
+        "name": "run_id",
+        "options": [],
+        "query": "label_values(k6_http_reqs_total, run_id)",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "FluxoCaixa — NFR / k6",
+  "uid": "fluxocaixa-nfr-k6",
+  "version": 1
+}
