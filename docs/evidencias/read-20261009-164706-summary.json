@@ -1,0 +1,151 @@
+{
+    "metrics": {
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 11516,
+            "thresholds": {
+                "rate<=0.05": false
+            },
+            "value": 0
+        },
+        "http_req_blocked": {
+            "avg": 0.010674279437304627,
+            "min": 0.0031,
+            "med": 0.0058,
+            "max": 3.287,
+            "p(90)": 0.0159,
+            "p(95)": 0.0203
+        },
+        "iterations": {
+            "count": 11516,
+            "rate": 0.18839994297780724,
+            "thresholds": {
+                "count>=15000": true
+            }
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 1.7866995,
+            "max": 1289.735514,
+            "p(90)": 4.19245,
+            "p(95)": 5.303425000000001,
+            "avg": 6.245060768843375,
+            "min": 1.1385
+        },
+        "dropped_iterations": {
+            "count": 9,
+            "rate": 0.00014723857995834188,
+            "thresholds": {
+                "count==0": true
+            }
+        },
+        "http_req_duration": {
+            "max": 1289.735514,
+            "p(90)": 4.19245,
+            "p(95)": 5.303425000000001,
+            "avg": 6.245060768843375,
+            "min": 1.1385,
+            "med": 1.7866995,
+            "thresholds": {
+                "p(95)<=300": false
+            }
+        },
+        "http_req_connecting": {
+            "med": 0,
+            "max": 0.904,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.0013010855331712402,
+            "min": 0
+        },
+        "http_req_waiting": {
+            "avg": 6.086468060437659,
+            "min": 1.0454,
+            "med": 1.65525,
+            "max": 1289.696914,
+            "p(90)": 3.89015,
+            "p(95)": 4.924225
+        },
+        "data_received": {
+            "count": 3949988,
+            "rate": 64.62118044138788
+        },
+        "http_req_receiving": {
+            "p(90)": 0.18014999999999998,
+            "p(95)": 0.2228,
+            "avg": 0.10830086158388305,
+            "min": 0.0226,
+            "med": 0.08965000000000001,
+            "max": 3.0737
+        },
+        "checks": {
+            "passes": 11516,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "data_sent": {
+            "count": 1554660,
+            "rate": 25.43399230200398
+        },
+        "successful_responses": {
+            "passes": 11516,
+            "fails": 0,
+            "thresholds": {
+                "rate>=0.95": false
+            },
+            "value": 1
+        },
+        "http_reqs": {
+            "count": 11516,
+            "rate": 0.18839994297780724
+        },
+        "vus_max": {
+            "value": 55,
+            "min": 50,
+            "max": 55
+        },
+        "iteration_duration": {
+            "avg": 6.482765271014253,
+            "min": 1.2342,
+            "med": 1.9855005000000001,
+            "max": 1290.013014,
+            "p(90)": 4.6251,
+            "p(95)": 5.8435500000000005
+        },
+        "vus": {
+            "min": 0,
+            "max": 35,
+            "value": 0
+        },
+        "http_req_sending": {
+            "p(95)": 0.1361,
+            "avg": 0.050291846821813035,
+            "min": 0.0086,
+            "med": 0.0387,
+            "max": 0.4155,
+            "p(90)": 0.08715
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "consolidado retorna 200": {
+                    "id": "cb8b0aaddd29122021374512908c90fd",
+                    "passes": 11516,
+                    "fails": 0,
+                    "name": "consolidado retorna 200",
+                    "path": "::consolidado retorna 200"
+                }
+            }
+    }
+}
