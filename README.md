@@ -11,7 +11,7 @@ Este case trata do registro de créditos e débitos de um comerciante e da consu
 | Sustentar 50 req/s e até 5% de falhas HTTP | Cenários k6 de leitura e escrita, por 5 minutos, com evidência exportada |
 | Tolerar falha temporária do processamento assíncrono | Event Store/outbox, publisher, retries, DLQ e teste de retomada do Projetor |
 
-O requisito de carga é um critério do desafio, não um SLO/SLA de produção. As medições registradas valem para a configuração local e para a janela do teste; não são garantia de capacidade em outro hardware, duração ou topologia.
+O requisito de carga é um critério do desafio, não um SLO/SLA de produção. As medições registradas valem para a configuração local e para a janela do teste; não são garantia de capacidade em outro hardware, duração ou topologia. Metas ou características indicadas no desenho são objetivos arquiteturais até que uma evidência nesta documentação demonstre seu comportamento no Compose.
 
 ## Arquitetura e limites do desenho
 
@@ -21,11 +21,23 @@ O desenho C4 abaixo é parte da proposta arquitetural deste case. Ele apresenta 
 
 Fonte editável: [fluxoCaixa.drawio](./docs/arquitetura/fluxoCaixa.drawio).
 
-**Implementado localmente:** frontend Angular 22 com login OIDC/PKCE; APIs Lançamentos e Consolidado em .NET 10 com validação JWT e autorização por escopo; Keycloak; PostgreSQL; Kafka; Event Publisher; Projetor; MongoDB; Redis; worker de reprocessamento da DLQ; Prometheus, Grafana e cenários k6.
+**Implementado no ambiente local:** frontend Angular 22 com login OIDC/PKCE; APIs Lançamentos e Consolidado em .NET 10 com validação JWT e autorização por escopo; Keycloak de demonstração; PostgreSQL; Kafka; Event Publisher; Projetor; MongoDB; Redis; worker de reprocessamento da DLQ; Prometheus e Grafana. Esses componentes estão definidos no Compose e executam localmente. Isso descreve implementação, não implica que todas as propriedades ou metas indicadas no desenho tenham sido validadas.
 
-**Proposto para produção, ainda não implantado:** Kong/API Gateway, Akamai, integração com provedor corporativo de identidade, Delinea Secret Manager, Alertmanager/on-call e autoscaling. O Keycloak do Compose é exclusivamente uma demonstração local. As portas são expostas localmente; não há caminho de tráfego ativo passando por gateway ou Akamai. No desenho, esses elementos expressam a direção arquitetural considerada, não serviços já contratados ou configurados.
+**Validado por evidências específicas:** autorização HTTP, idempotência da API, carga k6 e alguns cenários de recuperação. Cada evidência tem escopo e limitações descritos nas seções de testes. A execução de falha do Kafka registrada comprovou aceitação das gravações durante a indisponibilidade, mas não aprovou a reconciliação do Projetor devido a backlog inicial; portanto, não é apresentada como recuperação integral comprovada.
 
-O desenho considera uma evolução possível, mas o deployment local não entrega alta disponibilidade, identidade/IAM corporativa, rotação gerenciada de segredos ou operação 24x7. Não se afirma conformidade LGPD ou prontidão para produção.
+**Proposto no desenho como evolução produtiva, não implantado neste case:** Kong/API Gateway, Akamai, integração com provedor corporativo de identidade, Delinea Secret Manager, Alertmanager com notificações/on-call, autoscaling e topologia redundante dos serviços gerenciados. O Keycloak, Prometheus e Grafana do Compose são versões locais de demonstração, não a implantação produtiva dos sistemas externos representados no C4. As portas são expostas localmente; o tráfego não passa por Kong ou Akamai.
+
+| Elemento ou capacidade do desenho | Estado neste case | Limite / referência |
+|---|---|---|
+| Web App, APIs, Keycloak e autorização por JWT/escopos | Implementados no Compose; autorização HTTP tem teste dedicado | Demonstração local; ver [Segurança e configuração local](#segurança-e-configuração-exclusivamente-local) |
+| PostgreSQL, Event Store/outbox, Event Publisher e Kafka | Implementados no Compose; escrita durante falha do Kafka tem evidência | Broker local único; ver [Fluxo de eventos e recuperação](#fluxo-de-eventos-e-recuperação) |
+| Projetor, MongoDB, Redis e reprocessador da DLQ | Implementados no Compose | A reconciliação após a falha Kafka registrada não foi aprovada; rebuild integral do read model não está automatizado |
+| Prometheus, Grafana, métricas e traces locais | Implementados no Compose | Regras locais não enviam notificações nem configuram plantão; ver [Testes de carga e recuperação](#testes-de-carga-e-recuperação) |
+| Kong/API Gateway, Akamai e Secret Manager corporativo | Propostos no desenho; não implantados | Sem caminho ativo de tráfego por gateway/Akamai nem cofre produtivo neste case |
+| Alertmanager/on-call, HA e autoscaling | Propostos para evolução produtiva; não implantados | O Compose não oferece HA, operação 24x7 ou garantias de recuperação de desastre |
+| Rebuild integral do read model por replay | Capacidade desejada no desenho; não automatizada | Há republicação seletiva de eventos, que não equivale a rebuild integral |
+
+O desenho é a visão arquitetural considerada para o sistema, incluindo a direção de evolução; não é um inventário literal do deployment executável. Elementos e fluxos desenhados não devem ser lidos como implementados ou validados sem a indicação correspondente acima e nas evidências. A seção GCP adiante é uma simulação de serviços e custos possíveis para evoluir essa arquitetura, não uma implantação realizada ou garantia de capacidade. O ambiente local não entrega alta disponibilidade, identidade/IAM corporativa, rotação gerenciada de segredos ou operação 24x7. Não se afirma conformidade LGPD ou prontidão para produção.
 
 ## Decisões arquiteturais
 
@@ -36,7 +48,7 @@ As decisões abaixo ligam o requisito do case à escolha técnica e ao custo ace
 | ADR-01 | Não perder a associação entre lançamento aceito e evento a publicar | PostgreSQL grava lançamento e evento na mesma transação. O estado de escrita continua em `public.lancamentos`; `public.eventos` atua como Event Store/outbox. É uma escolha mais precisa que chamar o desenho de Event Sourcing integral. |
 | ADR-02 | Isolar a escrita do atraso/falha de projeção | Event Publisher e Kafka separam gravação da atualização do saldo. A entrega é at-least-once e o consolidado é eventualmente consistente; o Compose usa broker único e fator de replicação 1. |
 | ADR-03 | Otimizar a consulta diária | MongoDB mantém o read model por data e Redis aplica cache-aside com TTL de 5 min. A projeção pode ficar temporariamente atrasada ou em cache; consistência forte não é prometida. |
-| ADR-04 | Tornar falhas recuperáveis e demonstráveis | Projetor usa retry, DLQ e deduplicação por `eventId`; há replay seletivo do Event Store e reprocessamento da DLQ. O rebuild integral do read model ainda não é automatizado. |
+| ADR-04 | Tornar falhas recuperáveis e demonstráveis | Projetor usa retry, DLQ e deduplicação por `eventId`; há replay seletivo do Event Store e reprocessamento da DLQ. O rebuild integral do read model ainda não é automatizado. O desenho o apresenta como capacidade desejada; a republicação seletiva documentada abaixo não equivale a reconstruir toda a projeção. |
 | ADR-05 | Executar e avaliar sem infraestrutura cloud | Docker Compose, Prometheus, Grafana e k6 tornam o case repetível localmente. A simplicidade reduz custo de entrada, mas não representa HA, IAM, backups gerenciados ou monitoramento operacional. |
 
 ## Arquitetura de software, padrões e tecnologias
@@ -132,11 +144,11 @@ O requisito de 50 req/s e até 5% de falhas permanece um critério do desafio, n
 - Node.js 22+ (somente para desenvolvimento do frontend)
 - .NET SDK 10 (somente para desenvolvimento do backend)
 
-### Segurança: configuração exclusivamente local
+### Segurança e configuração exclusivamente local
 
 O `docker-compose.yml` deste repositório é uma configuração de demonstração local, **não adequada para produção nem para exposição à internet**. Ele contém credenciais de exemplo em texto claro para serviços como PostgreSQL, MongoDB, Grafana e Keycloak; o realm importado também contém usuário e clientes de teste com segredos locais. Qualquer pessoa com acesso ao arquivo ou ao daemon Docker pode inspecionar configurações e variáveis dos containers; não reutilize esses valores, substitua-os por credenciais fortes e exclusivas mesmo em ambientes compartilhados e não os considere protegidos por estarem em variáveis de ambiente. As portas publicadas pelo Compose também não devem ser expostas a redes não confiáveis.
 
-As APIs validam assinatura, emissor e audiência dos access tokens JWT emitidos pelo realm local `fluxocaixa`. As rotas de consulta exigem o escopo `fluxocaixa.read`; o POST de lançamentos exige `fluxocaixa.write`. O frontend usa Authorization Code com PKCE (S256), mantém o token no cliente OIDC e o envia como `Authorization: Bearer`; os testes k6 usam um cliente de serviço separado via `client_credentials`. A demonstração inclui um cliente read-only para validar `403` sem escopo de escrita. Kafka e os acessos dos workers a banco/cache continuam com configuração de demonstração local, sem TLS/ACL produtivos. Isso comprova autenticação/autorização HTTP no ambiente local, não políticas corporativas de identidade, proteção de borda, TLS ou gestão produtiva de credenciais. Em produção, use HTTPS, um emissor OIDC gerenciado, audiences e escopos mínimos, segredos de clientes em cofre, TLS/SASL e ACL para Kafka e restrinja Swagger, health checks e métricas à rede operacional.
+No desenho, a validação JWT aparece associada ao API Gateway. No Compose, ela é feita pelas próprias APIs, pois o gateway não foi implantado. As APIs validam assinatura, emissor e audiência dos access tokens JWT emitidos pelo realm local `fluxocaixa`. As rotas de consulta exigem o escopo `fluxocaixa.read`; o POST de lançamentos exige `fluxocaixa.write`. O frontend usa Authorization Code com PKCE (S256), mantém o token no cliente OIDC e o envia como `Authorization: Bearer`; os testes k6 usam um cliente de serviço separado via `client_credentials`. A demonstração inclui um cliente read-only para validar `403` sem escopo de escrita. Kafka e os acessos dos workers a banco/cache continuam com configuração de demonstração local, sem TLS/ACL produtivos. Isso comprova autenticação/autorização HTTP no ambiente local, não políticas corporativas de identidade, proteção de borda, TLS ou gestão produtiva de credenciais. Em produção, use HTTPS, um emissor OIDC gerenciado, audiences e escopos mínimos, segredos de clientes em cofre, TLS/SASL e ACL para Kafka e restrinja Swagger, health checks e métricas à rede operacional.
 
 As imagens de terceiros usadas no Compose são referenciadas diretamente em registries públicos, e os serviços da aplicação são construídos localmente. Para implantação, publique e consuma as imagens aprovadas a partir de um registry privado, por exemplo Harbor; fixe versões imutáveis (preferencialmente digest), valide origem e vulnerabilidades e forneça autenticação ao pipeline/runtime por credenciais protegidas. O Compose atual não configura Harbor nem constitui uma cadeia de fornecimento de imagens pronta para produção.
 
@@ -225,12 +237,12 @@ O teste comprova `401` sem token, `200` com escopo de leitura, `403` ao tentar e
 
 | Serviço | URL |
 |---|---|
-| Frontend | http://localhost:4200 |
-| Keycloak (realm `fluxocaixa`) | http://localhost:8081 |
-| Lançamentos API | http://localhost:5001/swagger |
-| Consolidado API | http://localhost:5002/swagger |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3001 (credenciais locais no Compose; substituir antes de expor) |
+| Frontend | [http://localhost:4200](http://localhost:4200) |
+| Keycloak (realm `fluxocaixa`) | [http://localhost:8081](http://localhost:8081) |
+| Lançamentos API | [http://localhost:5001/swagger](http://localhost:5001/swagger) |
+| Consolidado API | [http://localhost:5002/swagger](http://localhost:5002/swagger) |
+| Prometheus | [http://localhost:9090](http://localhost:9090) |
+| Grafana | [http://localhost:3001](http://localhost:3001) (credenciais locais no Compose; substituir antes de expor) |
 
 ---
 
@@ -373,9 +385,9 @@ Suba a infraestrutura conforme **Como rodar localmente** e execute os comandos e
 .\tests\load\scripts\Invoke-NfrLoad.ps1 -Scenario read -Rate 5 -Duration 30s
 ```
 
-O k6 determina o resultado dos thresholds. O resumo JSON é salvo em `docs/evidencias`; Prometheus recebe métricas por remote write e o dashboard Grafana (`http://localhost:3001`) permite filtrar execuções por `run_id`. A visualização complementa, mas não substitui, o resultado do teste. Os valores do case são medidos no ambiente local, não garantias de produção.
+O k6 determina o resultado dos thresholds. O resumo JSON é salvo em [`docs/evidencias`](./docs/evidencias); Prometheus recebe métricas por remote write e o dashboard [Grafana](http://localhost:3001) permite filtrar execuções por `run_id`. A visualização complementa, mas não substitui, o resultado do teste. Os valores do case são medidos no ambiente local, não garantias de produção.
 
-No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. As regras em `iac/docker/alert-rules.yml` detectam APIs/workers sem métricas, eventos pendentes ou envelhecidos, lag do Projetor acima de 500 registros e novos envios à DLQ. O Prometheus avalia esses alertas localmente; envio de notificações e plantão ainda precisam ser configurados para produção. Jaeger (`http://localhost:16686`) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`.
+No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. As regras em `iac/docker/alert-rules.yml` detectam APIs/workers sem métricas, eventos pendentes ou envelhecidos, lag do Projetor acima de 500 registros e novos envios à DLQ. O Prometheus avalia esses alertas localmente; envio de notificações e plantão ainda precisam ser configurados para produção. [Jaeger](http://localhost:16686) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`.
 
 | Execução registrada | Carga concluída | p95 observado | Falhas HTTP | Descartadas |
 |---|---:|---:|---:|---:|
@@ -391,7 +403,7 @@ O cenário de recuperação interrompe o serviço `projetor`, envia carga de esc
 ```powershell
 .\tests\load\scripts\Test-ProjectorRecovery.ps1
 
-# Interrompe Kafka durante a carga; comprova aceitação durável, recuperação do backlog e saldo reconciliado
+# Interrompe Kafka durante a carga e verifica aceitação durável e reconciliação após a retomada
 .\tests\load\scripts\Test-KafkaRecovery.ps1
 ```
 
@@ -416,7 +428,7 @@ O cenário abaixo repete a mesma requisição autenticada com a mesma `Idempoten
 
 A execução `idempotency-20261013-134217` passou: primeira chamada e repetição retornaram HTTP 201 com o mesmo ID; o corpo conflitante retornou HTTP 409; a chave ficou associada a um único evento.
 
-Esse cenário valida a idempotência HTTP/Event Store, não a republicação duplicada diretamente no Kafka. Embora o Projetor tenha deduplicação por `eventId` e métricas/alerta da DLQ, a injeção controlada de uma mensagem inválida e o fluxo de reprocessamento da DLQ ainda precisam de um ensaio integrado antes de declarar esses caminhos validados.
+Esse cenário valida a idempotência HTTP/Event Store, não a republicação duplicada diretamente no Kafka. O Projetor implementa deduplicação por `eventId`; o Compose também expõe métricas e regras locais para eventos enviados à DLQ. A injeção controlada de uma mensagem inválida e o fluxo de reprocessamento da DLQ ainda precisam de um ensaio integrado antes de declarar esses caminhos validados.
 
 ![Dashboard k6 no Grafana](./docs/imagens/fluxocaixa-grafana-k6.png)
 ![Séries de carga e disponibilidade no Grafana](./docs/imagens/fluxocaixa-grafana.png)
@@ -428,7 +440,7 @@ Os resultados brutos das execuções ficam em [`docs/evidencias`](./docs/evidenc
 
 O Event Store (`public.eventos`) e o lançamento são gravados na mesma transação PostgreSQL. O Event Publisher publica eventos pendentes no Kafka e avança o checkpoint após o ACK. O Projetor consome o tópico, deduplica por `eventId` e persiste saldo e marca de processamento no MongoDB. O offset é confirmado após a persistência ou após o envio confirmado à DLQ.
 
-O desenho oferece entrega **at-least-once** e leitura eventualmente consistente; não garante disponibilidade se a API de escrita ou o PostgreSQL estiverem indisponíveis. O rebuild integral do read model ainda não é automatizado.
+No fluxo implementado, a entrega é **at-least-once** e a leitura do consolidado é eventualmente consistente; não há garantia de disponibilidade se a API de escrita ou o PostgreSQL estiverem indisponíveis. O rebuild integral do read model ainda não é automatizado. O desenho o apresenta como capacidade desejada; a republicação seletiva documentada abaixo não equivale a reconstruir toda a projeção.
 
 Há duas operações distintas: republicação seletiva do Event Store e reprocessamento de uma falha já encaminhada à DLQ. Ambas são implementadas por workers e tópicos Kafka; não há endpoint HTTP nem tela administrativa.
 
