@@ -1,0 +1,12 @@
+﻿{
+    "runId":  "idempotency-20261013-134217",
+    "scenario":  "api-idempotency",
+    "status":  "passed",
+    "repeatedResponseId":  "c711fcc4-5256-41ee-bdf6-c5366ba83c63",
+    "firstStatus":  201,
+    "duplicateStatus":  201,
+    "conflictingPayloadStatus":  409,
+    "idempotencyRecords":  1,
+    "distinctEventIds":  1,
+    "eventStoreEvents":  1
+}

@@ -1,0 +1,132 @@
+{
+  "realm": "fluxocaixa",
+  "enabled": true,
+  "loginTheme": "fluxocaixa",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "pt-BR"
+  ],
+  "defaultLocale": "pt-BR",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "accessTokenLifespan": 600,
+  "clientScopes": [
+    {
+      "name": "fluxocaixa.read",
+      "protocol": "openid-connect",
+      "description": "Permite consultar as APIs FluxoCaixa"
+    },
+    {
+      "name": "fluxocaixa.write",
+      "protocol": "openid-connect",
+      "description": "Permite registrar lançamentos FluxoCaixa"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "fluxocaixa-web",
+      "name": "FluxoCaixa Web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4200"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email",
+        "fluxocaixa.read",
+        "fluxocaixa.write"
+      ],
+      "protocolMappers": [
+        {
+          "name": "fluxocaixa-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "fluxocaixa-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "fluxocaixa-loadtest",
+      "name": "FluxoCaixa local load tests",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-loadtest-only-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": [
+        "roles",
+        "fluxocaixa.read",
+        "fluxocaixa.write"
+      ],
+      "protocolMappers": [
+        {
+          "name": "fluxocaixa-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "fluxocaixa-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "fluxocaixa-readonly",
+      "name": "FluxoCaixa local read-only test",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-readonly-only-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": [
+        "roles",
+        "fluxocaixa.read"
+      ],
+      "protocolMappers": [
+        {
+          "name": "fluxocaixa-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "fluxocaixa-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "case-fluxo",
+      "enabled": true,
+      "email": "case-fluxo@acesso.com",
+      "emailVerified": true,
+      "firstName": "FluxoCaixa",
+      "lastName": "Demonstração Local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "FluxocaixaLocal",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

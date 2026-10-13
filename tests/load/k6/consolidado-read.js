@@ -38,10 +38,29 @@ export const options = {
   },
 };
 
-export default function () {
+export function setup() {
+  const tokenResponse = http.post(
+    __ENV.OIDC_TOKEN_URL || 'http://keycloak:8080/realms/fluxocaixa/protocol/openid-connect/token',
+    {
+      grant_type: 'client_credentials',
+      client_id: __ENV.OIDC_CLIENT_ID || 'fluxocaixa-loadtest',
+      client_secret: __ENV.OIDC_CLIENT_SECRET,
+    },
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+  );
+  if (tokenResponse.status !== 200 || !tokenResponse.json('access_token')) {
+    throw new Error(`Falha ao obter token OIDC para o teste de carga: HTTP ${tokenResponse.status}`);
+  }
+  return { token: tokenResponse.json('access_token') };
+}
+
+export default function (data) {
   const response = http.get(
     `${__ENV.CONSOLIDADO_URL || 'http://api-consolidado:8080'}/api/v1/consolidado/periodo?inicio=${date}&fim=${date}`,
-    { tags: { endpoint: 'periodo' } },
+    {
+      headers: { Authorization: `Bearer ${data.token}` },
+      tags: { endpoint: 'periodo' },
+    },
   );
   const successful = response.status === 200;
   successfulResponses.add(successful);

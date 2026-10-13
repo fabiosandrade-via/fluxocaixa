@@ -1,0 +1,11 @@
+html,
+body,
+body.login-pf,
+.login-pf body {
+  background: #f3f5f7 !important;
+  background-image: none !important;
+}
+
+#kc-header-wrapper {
+  color: #344054;
+}

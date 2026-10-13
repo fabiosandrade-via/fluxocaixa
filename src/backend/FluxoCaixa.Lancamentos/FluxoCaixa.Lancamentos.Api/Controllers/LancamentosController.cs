@@ -1,11 +1,13 @@
 using FluxoCaixa.Lancamentos.Application.Interfaces;
 using FluxoCaixa.Lancamentos.Application.UseCases.RegistrarLancamento;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FluxoCaixa.Lancamentos.Api.Controllers;
 
 [ApiController]
+[Authorize]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/lancamentos")]
 [Produces("application/json")]
@@ -24,6 +26,7 @@ public sealed class LancamentosController : ControllerBase
 
     /// <summary>Registra um novo lançamento (débito ou crédito).</summary>
     [HttpPost]
+    [Authorize(Policy = "api.write")]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Registrar(
@@ -48,6 +51,7 @@ public sealed class LancamentosController : ControllerBase
 
     /// <summary>Lista todos os lançamentos.</summary>
     [HttpGet]
+    [Authorize(Policy = "api.read")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> ListarTodos(CancellationToken ct)
     {
@@ -57,6 +61,7 @@ public sealed class LancamentosController : ControllerBase
 
     /// <summary>Lista lançamentos de uma data específica.</summary>
     [HttpGet("data/{data:required}")]
+    [Authorize(Policy = "api.read")]
     public async Task<IActionResult> ObterPorData(
         [FromRoute] string data,
         CancellationToken ct)

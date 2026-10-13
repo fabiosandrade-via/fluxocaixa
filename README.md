@@ -21,9 +21,9 @@ O desenho C4 abaixo é parte da proposta arquitetural deste case. Ele apresenta 
 
 Fonte editável: [fluxoCaixa.drawio](./docs/arquitetura/fluxoCaixa.drawio).
 
-**Implementado localmente:** frontend Angular 22; APIs Lançamentos e Consolidado em .NET 10; PostgreSQL; Kafka; Event Publisher; Projetor; MongoDB; Redis; worker de reprocessamento da DLQ; Prometheus, Grafana e cenários k6.
+**Implementado localmente:** frontend Angular 22 com login OIDC/PKCE; APIs Lançamentos e Consolidado em .NET 10 com validação JWT e autorização por escopo; Keycloak; PostgreSQL; Kafka; Event Publisher; Projetor; MongoDB; Redis; worker de reprocessamento da DLQ; Prometheus, Grafana e cenários k6.
 
-**Proposto no desenho, ainda não implantado:** Kong/API Gateway, Akamai, Identity Platform/OIDC, Delinea Secret Manager, Alertmanager/on-call e autoscaling. As portas são expostas localmente pelo Compose; não há caminho de tráfego ativo passando por gateway ou Akamai. No desenho, esses elementos expressam a direção arquitetural considerada, não serviços já contratados ou configurados.
+**Proposto para produção, ainda não implantado:** Kong/API Gateway, Akamai, integração com provedor corporativo de identidade, Delinea Secret Manager, Alertmanager/on-call e autoscaling. O Keycloak do Compose é exclusivamente uma demonstração local. As portas são expostas localmente; não há caminho de tráfego ativo passando por gateway ou Akamai. No desenho, esses elementos expressam a direção arquitetural considerada, não serviços já contratados ou configurados.
 
 O desenho considera uma evolução possível, mas o deployment local não entrega alta disponibilidade, identidade/IAM corporativa, rotação gerenciada de segredos ou operação 24x7. Não se afirma conformidade LGPD ou prontidão para produção.
 
@@ -134,11 +134,9 @@ O requisito de 50 req/s e até 5% de falhas permanece um critério do desafio, n
 
 ### Segurança: configuração exclusivamente local
 
-O `docker-compose.yml` deste repositório é uma configuração de demonstração local, **não adequada para produção nem para exposição à internet**. Ele contém credenciais de exemplo em texto claro para serviços como PostgreSQL, MongoDB e Grafana. Qualquer pessoa com acesso ao arquivo ou ao daemon Docker pode inspecionar configurações e variáveis dos containers; não reutilize esses valores, substitua-os por credenciais fortes e exclusivas mesmo em ambientes compartilhados e não os considere protegidos por estarem em variáveis de ambiente. As portas publicadas pelo Compose também não devem ser expostas a redes não confiáveis.
+O `docker-compose.yml` deste repositório é uma configuração de demonstração local, **não adequada para produção nem para exposição à internet**. Ele contém credenciais de exemplo em texto claro para serviços como PostgreSQL, MongoDB, Grafana e Keycloak; o realm importado também contém usuário e clientes de teste com segredos locais. Qualquer pessoa com acesso ao arquivo ou ao daemon Docker pode inspecionar configurações e variáveis dos containers; não reutilize esses valores, substitua-os por credenciais fortes e exclusivas mesmo em ambientes compartilhados e não os considere protegidos por estarem em variáveis de ambiente. As portas publicadas pelo Compose também não devem ser expostas a redes não confiáveis.
 
-O arquivo `iac/docker/.env.local` pode conter segredos e não deve ser enviado ao Git, incluído em imagens ou compartilhado em logs, capturas de tela e saídas de `docker compose config`/`docker inspect`. **Neste checkout, esse arquivo está atualmente versionado**; removê-lo do índice não apaga cópias já enviadas nem o histórico. Antes de compartilhar ou reutilizar o repositório, remova-o do versionamento, confirme que está ignorado pelo Git e troque/invalide quaisquer credenciais reais que possam ter sido incluídas. O `.gitignore` precisa cobrir explicitamente `.env.local`; uma regra que ignore apenas arquivos terminados em `.env` não cobre esse nome.
-
-Para implantação, injete segredos por um gerenciador de segredos ou mecanismo seguro do ambiente de execução, com permissões mínimas e rotação. Não grave tokens ou senhas de registry no Compose, no `.env` versionado, em Dockerfiles ou na linha de comando persistida.
+As APIs validam assinatura, emissor e audiência dos access tokens JWT emitidos pelo realm local `fluxocaixa`. As rotas de consulta exigem o escopo `fluxocaixa.read`; o POST de lançamentos exige `fluxocaixa.write`. O frontend usa Authorization Code com PKCE (S256), mantém o token no cliente OIDC e o envia como `Authorization: Bearer`; os testes k6 usam um cliente de serviço separado via `client_credentials`. A demonstração inclui um cliente read-only para validar `403` sem escopo de escrita. Kafka e os acessos dos workers a banco/cache continuam com configuração de demonstração local, sem TLS/ACL produtivos. Isso comprova autenticação/autorização HTTP no ambiente local, não políticas corporativas de identidade, proteção de borda, TLS ou gestão produtiva de credenciais. Em produção, use HTTPS, um emissor OIDC gerenciado, audiences e escopos mínimos, segredos de clientes em cofre, TLS/SASL e ACL para Kafka e restrinja Swagger, health checks e métricas à rede operacional.
 
 As imagens de terceiros usadas no Compose são referenciadas diretamente em registries públicos, e os serviços da aplicação são construídos localmente. Para implantação, publique e consuma as imagens aprovadas a partir de um registry privado, por exemplo Harbor; fixe versões imutáveis (preferencialmente digest), valide origem e vulnerabilidades e forneça autenticação ao pipeline/runtime por credenciais protegidas. O Compose atual não configura Harbor nem constitui uma cadeia de fornecimento de imagens pronta para produção.
 
@@ -148,31 +146,53 @@ As imagens de terceiros usadas no Compose são referenciadas diretamente em regi
 git clone <repo-url>
 cd fluxocaixa
 
-# Copiar e revisar credenciais
-cp iac/docker/.env iac/docker/.env.local
-# Edite .env.local se necessário
+# Criar apenas se ainda não existir; preservar o arquivo local existente.
+if [ ! -f iac/docker/.env.local ]; then
+  cp iac/docker/.env.example iac/docker/.env.local
+fi
 ```
 
 ### 2. Subir todos os serviços
 
 ```bash
 cd iac/docker
-docker compose --env-file .env up -d --build
+docker compose --env-file .env.local up -d --build
 ```
 
 ### 3. Verificar status
 
 ```bash
-docker compose ps
-docker compose logs -f api-lancamentos
-docker compose logs -f api-consolidado
+docker compose --env-file .env.local ps
+docker compose --env-file .env.local logs -f api-lancamentos
+docker compose --env-file .env.local logs -f api-consolidado
 ```
 
-### 4. Acessar
+### 4. Entrar no sistema
+
+1. Abra o frontend em `http://localhost:4200`. O login é feito pelo Keycloak local em `http://localhost:8081`, com Authorization Code e PKCE.
+2. Informe o usuário `case-fluxo` ou o e-mail `case-fluxo@acesso.com`.
+3. Informe a senha `FluxocaixaLocal` e selecione **Entrar**. O realm de demonstração vem com essa conta configurada.
+
+![Acesso](./docs/imagens/fluxocaixa-login.png)
+
+Essas credenciais são públicas e exclusivas deste ambiente local; não as reutilize, não exponha o Compose à internet e troque-as em qualquer ambiente compartilhado. A tela usa o tema local sem a imagem geométrica padrão, com fundo cinza-claro neutro. As credenciais de demonstração dos clientes de teste estão em `iac/docker/keycloak/realm-export/fluxocaixa-realm.json` e no serviço k6 do Compose; não as use em qualquer outro ambiente.
+
+**Se alterar usuário ou senha no JSON depois que o realm já foi criado**, reiniciar o Keycloak não atualiza o realm existente: `--import-realm` importa a configuração inicial, mas não sincroniza alterações em realms já persistidos. Atualize a conta também pelo Admin Console do Keycloak ou pela Admin CLI (`kcadm.sh`). Não remova volumes do Compose como tentativa de atualizar credenciais, pois isso pode apagar os dados locais dos serviços.
+
+Para verificar a autorização nas duas APIs, execute com a infraestrutura ativa:
+
+```powershell
+.\tests\security\Test-ApiAuthorization.ps1
+```
+
+O teste comprova `401` sem token, `200` com escopo de leitura, `403` ao tentar escrita com token somente de leitura e que um token com escopo de escrita passa pela autorização (o corpo intencionalmente inválido recebe `400`, sem criar lançamento). Os endpoints `/health`, `/metrics` e Swagger são recursos operacionais/documentais da configuração local; em produção devem ser privados ou desativados conforme a política do ambiente.
+
+### 5. Acessar outros serviços
 
 | Serviço | URL |
 |---|---|
 | Frontend | http://localhost:4200 |
+| Keycloak (realm `fluxocaixa`) | http://localhost:8081 |
 | Lançamentos API | http://localhost:5001/swagger |
 | Consolidado API | http://localhost:5002/swagger |
 | Prometheus | http://localhost:9090 |
@@ -312,20 +332,48 @@ Suba a infraestrutura conforme **Como rodar localmente** e execute os comandos e
 
 O k6 determina o resultado dos thresholds. O resumo JSON é salvo em `docs/evidencias`; Prometheus recebe métricas por remote write e o dashboard Grafana (`http://localhost:3001`) permite filtrar execuções por `run_id`. A visualização complementa, mas não substitui, o resultado do teste. Os valores do case são medidos no ambiente local, não garantias de produção.
 
-No Compose, Prometheus coleta `/metrics` das duas APIs a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. Não mede atualmente lag do Kafka, idade do evento mais antigo no Event Store, tracing distribuído ou alertas acionáveis.
+No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. O Prometheus avalia alertas de indisponibilidade, backlog, idade e lag; Jaeger (`http://localhost:16686`) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`. Alertas são avaliados localmente; notificações e plantão ainda precisam ser configurados para produção.
 
 | Execução registrada | Carga concluída | p95 observado | Falhas HTTP | Descartadas |
 |---|---:|---:|---:|---:|
+| Leitura — `read-20261013-134459` | 15.002 req / 50,003 req/s | 4,91 ms | 0% | 0 |
 | Leitura — `read-20261009-131630` | 15.001 req / 50 req/s | 3,77 ms | 0% | 0 |
 | Escrita — `projector-recovery-20261009-132733` | 15.000 req / 50 req/s | 7,64 ms | 0% | 0 |
+| Kafka indisponível — `kafka-recovery-20261013-121918` | 15.002 req / 50,003 req/s; 15.001 HTTP 201 | 13,22 ms | 0% | 0 |
 
-Esses resumos comprovam a carga k6, mas não que o saldo foi reconciliado após a retomada do Projetor. Execute o cenário abaixo para validar a reconciliação e gerar o relatório `*-recovery.json`.
+Esses resumos comprovam a carga k6, mas não que o saldo foi reconciliado após a retomada do Projetor. Execute os cenários abaixo para validar a reconciliação e gerar relatórios `*-recovery.json`.
 
-O cenário de recuperação interrompe o serviço `projetor`, envia carga de escrita para uma data futura isolada e compara os créditos persistidos com a projeção após a retomada:
+O cenário de recuperação interrompe o serviço `projetor`, envia carga de escrita para uma data futura isolada e compara os créditos persistidos com a projeção após a retomada. Ambos os cenários exigem lag inicial zero e usam timeout local de recuperação de 10 minutos:
 
 ```powershell
 .\tests\load\scripts\Test-ProjectorRecovery.ps1
+
+# Interrompe Kafka durante a carga; comprova aceitação durável, recuperação do backlog e saldo reconciliado
+.\tests\load\scripts\Test-KafkaRecovery.ps1
 ```
+
+O cenário Kafka mantém 50 req/s por 5 minutos, verifica taxa HTTP de falha até 5%, zero iterações descartadas e pelo menos 15.000 respostas aceitas. Enquanto Kafka está parado, exige que Prometheus registre backlog e reconcilia a carga com o Event Store; após restaurá-lo, aguarda o checkpoint e os créditos projetados coincidirem, com timeout local de 10 minutos. Antes de começar, exige lag zero no grupo do Projetor para não contaminar a medição com execuções anteriores. Se a carga não cumprir thresholds, o cenário falha, mas tenta reiniciar Kafka no bloco `finally`; ao exceder o timeout, salva diagnóstico em `*-recovery.json`.
+
+Para inspecionar o lag antes de executar, use:
+
+```powershell
+Set-Location .\iac\docker
+docker compose --env-file .env.local exec -T kafka kafka-consumer-groups --bootstrap-server kafka:9092 --describe --group consolidado-consumer-group
+```
+
+Na execução registrada, a API de lançamentos sustentou 50,003 req/s, aceitou 15.001 requisições (HTTP 201), não teve falhas HTTP, não descartou iterações e observou p95 de 13,22 ms enquanto Kafka estava parado. O Event Store manteve as gravações e o Event Publisher drenou o backlog após a restauração. **A conciliação do Projetor não foi aprovada nessa execução:** o grupo já tinha backlog de execuções anteriores, portanto esse ensaio não fornece um RTO limpo. Os scripts agora bloqueiam esse cenário contaminado e gravam diagnóstico se a projeção exceder o timeout; aguarde o lag ficar em zero e execute novamente para evidenciar a recuperação.
+
+### Idempotência e duplicidades
+
+O cenário abaixo repete a mesma requisição autenticada com a mesma `Idempotency-Key` e, depois, reutiliza a chave com outro corpo. O relatório registra os códigos HTTP e confirma no Event Store uma única chave e um único evento:
+
+```powershell
+.\tests\security\Test-Idempotency.ps1
+```
+
+A execução `idempotency-20261013-134217` passou: primeira chamada e repetição retornaram HTTP 201 com o mesmo ID; o corpo conflitante retornou HTTP 409; a chave ficou associada a um único evento.
+
+Esse cenário valida a idempotência HTTP/Event Store, não a republicação duplicada diretamente no Kafka. Embora o Projetor tenha deduplicação por `eventId` e métricas/alerta da DLQ, a injeção controlada de uma mensagem inválida e o fluxo de reprocessamento da DLQ ainda precisam de um ensaio integrado antes de declarar esses caminhos validados.
 
 ![Dashboard k6 no Grafana](./docs/imagens/fluxocaixa-grafana-k6.png)
 ![Séries de carga e disponibilidade no Grafana](./docs/imagens/fluxocaixa-grafana.png)

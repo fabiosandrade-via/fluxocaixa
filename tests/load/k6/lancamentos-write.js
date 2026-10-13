@@ -23,8 +23,8 @@ export const options = {
       rate,
       timeUnit: '1s',
       duration,
-      preAllocatedVUs: 50,
-      maxVUs: 200,
+      preAllocatedVUs: 100,
+      maxVUs: 400,
     },
   },
   thresholds: {
@@ -40,7 +40,23 @@ export const options = {
   },
 };
 
-export default function () {
+export function setup() {
+  const tokenResponse = http.post(
+    __ENV.OIDC_TOKEN_URL || 'http://keycloak:8080/realms/fluxocaixa/protocol/openid-connect/token',
+    {
+      grant_type: 'client_credentials',
+      client_id: __ENV.OIDC_CLIENT_ID || 'fluxocaixa-loadtest',
+      client_secret: __ENV.OIDC_CLIENT_SECRET,
+    },
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+  );
+  if (tokenResponse.status !== 200 || !tokenResponse.json('access_token')) {
+    throw new Error(`Falha ao obter token OIDC para o teste de carga: HTTP ${tokenResponse.status}`);
+  }
+  return { token: tokenResponse.json('access_token') };
+}
+
+export default function (data) {
   const idempotencyKey = `${__ENV.RUN_ID || 'local'}-${exec.vu.idInTest}-${exec.vu.iterationInScenario}`;
   const response = http.post(
     `${__ENV.LANCAMENTOS_URL || 'http://api-lancamentos:8080'}/api/v1/lancamentos`,
@@ -54,6 +70,7 @@ export default function () {
       headers: {
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
+        Authorization: `Bearer ${data.token}`,
       },
       tags: { endpoint: 'registrar' },
     },

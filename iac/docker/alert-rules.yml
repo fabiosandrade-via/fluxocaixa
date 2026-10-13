@@ -1,0 +1,66 @@
+groups:
+  - name: fluxocaixa-mensageria
+    rules:
+      - alert: EventPublisherIndisponivel
+        expr: up{job="event-publisher"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Event Publisher indisponível
+          description: Prometheus não consegue coletar métricas do Event Publisher há pelo menos um minuto.
+
+      - alert: ProjetorIndisponivel
+        expr: up{job="projetor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Projetor indisponível
+          description: Prometheus não consegue coletar métricas do Projetor há pelo menos um minuto.
+
+      - alert: BacklogEventStoreCrescendo
+        expr: fluxocaixa_eventpublisher_outbox_pending_events > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Há eventos pendentes de publicação
+          description: O Event Store mantém eventos sem confirmação do Kafka por mais de dois minutos.
+
+      - alert: EventoMaisAntigoAtrasado
+        expr: fluxocaixa_eventpublisher_outbox_oldest_age_seconds > 120
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Evento pendente há mais de dois minutos
+          description: Verifique disponibilidade do Kafka e os logs do Event Publisher.
+
+      - alert: LagDoProjetorElevado
+        expr: fluxocaixa_projector_consumer_lag_records > 500
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Lag do Projetor acima de 500 eventos
+          description: A projeção do saldo está atrasada; verifique throughput, MongoDB e falhas de processamento.
+
+      - alert: EventosNaDlq
+        expr: increase(fluxocaixa_projector_events_sent_to_dlq_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Eventos enviados à DLQ
+          description: Investigue a causa, corrija-a e reprocese as mensagens com auditoria.
+
+  - name: fluxocaixa-api
+    rules:
+      - alert: ApiForaDoAr
+        expr: up{job=~".*-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: API FluxoCaixa sem métricas
+          description: Verifique estado do container, endpoint /metrics e conectividade de rede.

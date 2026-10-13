@@ -1,0 +1,56 @@
+{
+  "id": null,
+  "uid": "fluxocaixa-messaging",
+  "title": "FluxoCaixa - Mensageria e Recuperação",
+  "tags": ["fluxocaixa", "kafka", "recovery"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Eventos pendentes no Event Store",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "fluxocaixa_eventpublisher_outbox_pending_events", "legendFormat": "pendentes", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "Idade do evento pendente mais antigo",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "fluxocaixa_eventpublisher_outbox_oldest_age_seconds", "legendFormat": "segundos", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "Lag de consumo do Projetor",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "fluxocaixa_projector_consumer_lag_records", "legendFormat": "registros", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "Mensagens enviadas à DLQ",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "increase(fluxocaixa_projector_events_sent_to_dlq_total[5m])", "legendFormat": "últimos 5 min", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "id": 5,
+      "title": "Publicação e projeção por segundo",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "rate(fluxocaixa_eventpublisher_events_published_total[5m])", "legendFormat": "publicados", "refId": "A"},
+        {"expr": "rate(fluxocaixa_projector_events_projected_total[5m])", "legendFormat": "projetados", "refId": "B"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+    }
+  ]
+}

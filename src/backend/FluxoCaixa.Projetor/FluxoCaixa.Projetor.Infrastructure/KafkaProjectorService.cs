@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
+using Prometheus;
 
 namespace FluxoCaixa.Projetor.Infrastructure;
 
@@ -24,6 +26,19 @@ public sealed class KafkaProjectorOptions
 public sealed class KafkaProjectorService : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly ActivitySource ActivitySource = new("FluxoCaixa.Projetor");
+    private static readonly Counter ProjectedEvents = Metrics.CreateCounter(
+        "fluxocaixa_projector_events_projected_total",
+        "Eventos persistidos na projeção.");
+    private static readonly Counter FailedAttempts = Metrics.CreateCounter(
+        "fluxocaixa_projector_processing_failures_total",
+        "Tentativas de projeção que falharam.");
+    private static readonly Counter DeadLetterEvents = Metrics.CreateCounter(
+        "fluxocaixa_projector_events_sent_to_dlq_total",
+        "Eventos confirmados na DLQ.");
+    private static readonly Gauge ConsumerLag = Metrics.CreateGauge(
+        "fluxocaixa_projector_consumer_lag_records",
+        "Estimativa de mensagens ainda não consumidas nas partições atribuídas.");
     private readonly KafkaProjectorOptions _options;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<KafkaProjectorService> _logger;
@@ -75,6 +90,7 @@ public sealed class KafkaProjectorService : BackgroundService
                 {
                     await ProcessWithRetryAsync(record, stoppingToken);
                     consumer.Commit(record);
+                    RefreshConsumerLag(consumer);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -94,6 +110,7 @@ public sealed class KafkaProjectorService : BackgroundService
             }
             catch (ConsumeException ex)
             {
+                FailedAttempts.Inc();
                 _logger.LogError(ex, "Falha ao consumir mensagem Kafka.");
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
@@ -111,6 +128,22 @@ public sealed class KafkaProjectorService : BackgroundService
         ConsumeResult<string, string> record,
         CancellationToken ct)
     {
+        var traceParent = record.Message.Headers
+            .LastOrDefault(header => header.Key == "traceparent")?
+            .GetValueBytes();
+        ActivityContext.TryParse(
+            traceParent is null ? null : Encoding.UTF8.GetString(traceParent),
+            null,
+            out var parentContext);
+        using var activity = ActivitySource.StartActivity(
+            "event.process",
+            ActivityKind.Consumer,
+            parentContext);
+        activity?.SetTag("messaging.system", "kafka");
+        activity?.SetTag("messaging.destination.name", record.Topic);
+        activity?.SetTag("messaging.kafka.partition", record.Partition.Value);
+        activity?.SetTag("messaging.kafka.offset", record.Offset.Value);
+
         Exception? lastError = null;
         var firstFailureAt = DateTime.UtcNow;
         var attempts = Math.Clamp(_options.MaxRetries + 1, 1, 10);
@@ -133,10 +166,12 @@ public sealed class KafkaProjectorService : BackgroundService
                 using var scope = _scopeFactory.CreateScope();
                 var projectionWriter = scope.ServiceProvider.GetRequiredService<IProjectionWriter>();
                 await projectionWriter.ProcessarEventoAsync(evento, ct);
+                ProjectedEvents.Inc();
                 return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                FailedAttempts.Inc();
                 lastError = ex;
                 _logger.LogWarning(
                     ex,
@@ -169,6 +204,7 @@ public sealed class KafkaProjectorService : BackgroundService
             _options.DlqTopic,
             new Message<string, string> { Key = key, Value = JsonSerializer.Serialize(envelope, JsonOptions) },
             ct);
+        DeadLetterEvents.Inc();
 
         _logger.LogError(
             lastError,
@@ -176,6 +212,26 @@ public sealed class KafkaProjectorService : BackgroundService
             envelope.EventoId,
             _options.DlqTopic,
             envelope.FalhaId);
+    }
+
+    private void RefreshConsumerLag(IConsumer<string, string> consumer)
+    {
+        try
+        {
+            var lag = 0L;
+            foreach (var partition in consumer.Assignment)
+            {
+                var watermark = consumer.QueryWatermarkOffsets(partition, TimeSpan.FromSeconds(5));
+                var position = consumer.Position(partition);
+                var nextOffset = position.Value < 0 ? watermark.Low.Value : position.Value;
+                lag += Math.Max(0, watermark.High.Value - nextOffset);
+            }
+            ConsumerLag.Set(lag);
+        }
+        catch (KafkaException ex)
+        {
+            _logger.LogWarning(ex, "Não foi possível atualizar a métrica de lag do consumidor.");
+        }
     }
 
     private static DlqFailureEnvelope CreateFailureEnvelope(

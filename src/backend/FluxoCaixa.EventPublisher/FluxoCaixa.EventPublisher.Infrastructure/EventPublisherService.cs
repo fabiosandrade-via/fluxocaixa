@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Confluent.Kafka;
 using Microsoft.Extensions.Hosting;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Prometheus;
 
 namespace FluxoCaixa.EventPublisher.Infrastructure;
 
@@ -23,6 +25,19 @@ public sealed class EventPublisherOptions
 public sealed class EventPublisherService : BackgroundService
 {
     private const string LockKey = "fluxocaixa:lancamentos:event-publisher";
+    private static readonly ActivitySource ActivitySource = new("FluxoCaixa.EventPublisher");
+    private static readonly Counter PublishedEvents = Metrics.CreateCounter(
+        "fluxocaixa_eventpublisher_events_published_total",
+        "Eventos confirmados pelo Event Publisher.");
+    private static readonly Counter PublishFailures = Metrics.CreateCounter(
+        "fluxocaixa_eventpublisher_publish_failures_total",
+        "Falhas de publicação ou acesso ao Kafka.");
+    private static readonly Gauge PendingOutboxEvents = Metrics.CreateGauge(
+        "fluxocaixa_eventpublisher_outbox_pending_events",
+        "Eventos pendentes de publicação no Event Store.");
+    private static readonly Gauge OldestOutboxEventAgeSeconds = Metrics.CreateGauge(
+        "fluxocaixa_eventpublisher_outbox_oldest_age_seconds",
+        "Idade do evento mais antigo pendente no Event Store.");
     private readonly EventPublisherOptions _options;
     private readonly ILogger<EventPublisherService> _logger;
     private readonly NpgsqlDataSource _dataSource;
@@ -43,6 +58,7 @@ public sealed class EventPublisherService : BackgroundService
             BootstrapServers = _options.BootstrapServers,
             Acks = Acks.All,
             EnableIdempotence = true,
+            MessageTimeoutMs = 10_000,
             MessageSendMaxRetries = 5,
             RetryBackoffMs = 500
         }).Build();
@@ -66,7 +82,21 @@ public sealed class EventPublisherService : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                var published = await PublishBatchAsync(connection, stoppingToken);
+                int published;
+                try
+                {
+                    published = await PublishBatchAsync(connection, stoppingToken);
+                    await RefreshOutboxMetricsAsync(connection, stoppingToken);
+                }
+                catch (KafkaException ex) when (!stoppingToken.IsCancellationRequested)
+                {
+                    PublishFailures.Inc();
+                    _logger.LogWarning(ex, "Kafka indisponível; eventos permanecem pendentes no Event Store e serão tentados novamente.");
+                    await RefreshOutboxMetricsAsync(connection, stoppingToken);
+                    await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+                    continue;
+                }
+
                 if (published == 0)
                 {
                     await Task.Delay(
@@ -116,6 +146,26 @@ public sealed class EventPublisherService : BackgroundService
         }
     }
 
+    private async Task RefreshOutboxMetricsAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT COUNT(*),
+                   COALESCE(EXTRACT(EPOCH FROM clock_timestamp() - MIN(e.registrado_em)), 0)
+            FROM public.eventos e
+            JOIN public.checkpoints_publicacao c ON c.publicador = @publisher
+            WHERE e.posicao_global > c.ultima_posicao
+            """,
+            connection);
+        command.Parameters.AddWithValue("publisher", _options.PublisherName);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+            throw new InvalidOperationException("Não foi possível consultar as métricas do Event Store.");
+
+        PendingOutboxEvents.Set(reader.GetInt64(0));
+        OldestOutboxEventAgeSeconds.Set(reader.GetDouble(1));
+    }
+
     private async Task<int> PublishBatchAsync(NpgsqlConnection connection, CancellationToken ct)
     {
         const string selectSql = """
@@ -149,6 +199,11 @@ public sealed class EventPublisherService : BackgroundService
 
         foreach (var record in records)
         {
+            using var activity = ActivitySource.StartActivity("event.publish", ActivityKind.Producer);
+            activity?.SetTag("messaging.system", "kafka");
+            activity?.SetTag("messaging.destination.name", _options.Topic);
+            activity?.SetTag("messaging.message.id", record.EventId.ToString());
+            activity?.SetTag("messaging.kafka.offset", record.Position);
             var message = new Message<string, string>
             {
                 Key = record.StreamId,
@@ -161,9 +216,12 @@ public sealed class EventPublisherService : BackgroundService
                     { "event-position", Encoding.UTF8.GetBytes(record.Position.ToString()) }
                 }
             };
+            if (activity?.Id is { } traceParent)
+                message.Headers.Add("traceparent", Encoding.UTF8.GetBytes(traceParent));
 
             await _producer.ProduceAsync(_options.Topic, message, ct);
             await AdvanceCheckpointAsync(connection, record.Position, ct);
+            PublishedEvents.Inc();
             _logger.LogInformation(
                 "Evento {EventId} na posição {Position} publicado e confirmado.",
                 record.EventId,

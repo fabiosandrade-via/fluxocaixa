@@ -30,30 +30,25 @@ public sealed class MongoProjectionWriter(
                     .AnyAsync(token))
                 return true;
 
-            var balance = await context.Saldos
-                .Find(transaction, item => item.Id == dateKey)
-                .FirstOrDefaultAsync(token)
-                ?? new ProjectedDailyBalance
-                {
-                    Id = dateKey,
-                    Data = evento.Data,
-                    CriadoEm = DateTime.UtcNow,
-                    AtualizadoEm = DateTime.UtcNow
-                };
-
-            if (evento.Tipo.Equals("Credito", StringComparison.OrdinalIgnoreCase))
-                balance.TotalCreditos += evento.Valor;
-            else if (evento.Tipo.Equals("Debito", StringComparison.OrdinalIgnoreCase))
-                balance.TotalDebitos += evento.Valor;
-            else
+            var isCredit = evento.Tipo.Equals("Credito", StringComparison.OrdinalIgnoreCase);
+            var isDebit = evento.Tipo.Equals("Debito", StringComparison.OrdinalIgnoreCase);
+            if (!isCredit && !isDebit)
                 throw new InvalidOperationException($"Tipo de lançamento não suportado: {evento.Tipo}.");
 
-            balance.AtualizadoEm = DateTime.UtcNow;
-            await context.Saldos.ReplaceOneAsync(
+            var now = DateTime.UtcNow;
+            var balanceUpdate = Builders<ProjectedDailyBalance>.Update
+                .SetOnInsert(balance => balance.Id, dateKey)
+                .SetOnInsert(balance => balance.Data, evento.Data)
+                .SetOnInsert(balance => balance.CriadoEm, now)
+                .Set(balance => balance.AtualizadoEm, now)
+                .Inc(balance => balance.TotalCreditos, isCredit ? evento.Valor : 0)
+                .Inc(balance => balance.TotalDebitos, isDebit ? evento.Valor : 0);
+
+            await context.Saldos.UpdateOneAsync(
                 transaction,
                 item => item.Id == dateKey,
-                balance,
-                new ReplaceOptions { IsUpsert = true },
+                balanceUpdate,
+                new UpdateOptions { IsUpsert = true },
                 token);
             await context.ProcessedEvents.InsertOneAsync(
                 transaction,

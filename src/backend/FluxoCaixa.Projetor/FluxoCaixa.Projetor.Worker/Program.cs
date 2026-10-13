@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.Builder;
 using FluxoCaixa.Projetor.Infrastructure;
 using FluxoCaixa.Projetor.Infrastructure.Persistence;
-using Microsoft.Extensions.Hosting;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Prometheus;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ProjectorMongoOptions>(
     builder.Configuration.GetSection("MongoDB"));
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -13,4 +16,11 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddSingleton<ProjectorMongoContext>();
 builder.Services.AddScoped<IProjectionWriter, MongoProjectionWriter>();
 builder.Services.AddProjectorInfrastructure(builder.Configuration);
-await builder.Build().RunAsync();
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("fluxocaixa-projetor"))
+    .WithTracing(tracing => tracing
+        .AddSource("FluxoCaixa.Projetor")
+        .AddOtlpExporter());
+var app = builder.Build();
+app.MapMetrics();
+await app.RunAsync();

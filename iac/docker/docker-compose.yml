@@ -11,6 +11,8 @@ networks:
     driver: bridge
   net-observ:
     driver: bridge
+  net-auth:
+    driver: bridge
 
 volumes:
   vol-db-lancamentos:
@@ -22,6 +24,37 @@ volumes:
   vol-grafana:
 
 services:
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    container_name: fluxocaixa-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: local-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: local-admin-only
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./keycloak/realm-export:/opt/keycloak/data/import:ro
+      - ./keycloak/themes:/opt/keycloak/themes:ro
+    networks:
+      - net-auth
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: fluxocaixa-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+    networks:
+      - net-observ
+    restart: unless-stopped
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
@@ -164,10 +197,16 @@ services:
       - "5001:8080"
     environment:
       ASPNETCORE_URLS: http://+:8080
+      Auth__Authority: http://keycloak:8080/realms/fluxocaixa
+      Auth__ValidIssuer: http://localhost:8081/realms/fluxocaixa
+      Auth__Audience: fluxocaixa-api
+      Auth__RequireHttpsMetadata: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       ConnectionStrings__LancamentosDb: Host=db-lancamentos;Port=5432;Database=lancamentos_db;Username=lancamentos_user;Password=L4nc@m3nt0sP@ss!
     networks:
       - net-lancamentos
       - net-observ
+      - net-auth
 
   api-consolidado:
     build:
@@ -184,6 +223,11 @@ services:
       - "5002:8080"
     environment:
       ASPNETCORE_URLS: http://+:8080
+      Auth__Authority: http://keycloak:8080/realms/fluxocaixa
+      Auth__ValidIssuer: http://localhost:8081/realms/fluxocaixa
+      Auth__Audience: fluxocaixa-api
+      Auth__RequireHttpsMetadata: "false"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       MongoDB__ConnectionString: mongodb://consolidado_user:C0ns0l1d%40d0M0ng0!@mongo-consolidado:27017/consolidado_db?authSource=admin
       MongoDB__DatabaseName: consolidado_db
       MongoDB__ColecaoSaldos: saldos_consolidados
@@ -191,6 +235,7 @@ services:
     networks:
       - net-consolidado
       - net-observ
+      - net-auth
 
   event-publisher:
     build:
@@ -207,7 +252,9 @@ services:
         condition: service_completed_successfully
     environment:
       EventPublisher__ConnectionString: "Host=db-lancamentos;Port=5432;Database=lancamentos_db;Username=lancamentos_user;Password=L4nc@m3nt0sP@ss!"
+      ASPNETCORE_URLS: http://+:8080
       EventPublisher__BootstrapServers: kafka:9092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       EventPublisher__ReplayCommandTopic: lancamentos.eventos.republicar
     networks:
       - net-lancamentos
@@ -231,11 +278,13 @@ services:
         condition: service_completed_successfully
     environment:
       MongoDB__ConnectionString: "mongodb://consolidado_user:C0ns0l1d%40d0M0ng0%21@mongo-consolidado:27017/consolidado_db?authSource=admin&replicaSet=rs0"
+      ASPNETCORE_URLS: http://+:8080
       MongoDB__DatabaseName: consolidado_db
       MongoDB__ColecaoSaldos: saldos_consolidados
       MongoDB__ColecaoEventosProcessados: eventos_processados
       ConnectionStrings__Redis: redis:6380
       Kafka__BootstrapServers: kafka:9092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       Kafka__GroupId: consolidado-consumer-group
       Kafka__Topic: lancamentos-events
       Kafka__DlqTopic: lancamentos.dlq
@@ -285,6 +334,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - vol-prometheus:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -320,8 +370,12 @@ services:
     environment:
       K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
       K6_PROMETHEUS_RW_TREND_STATS: "p(95),p(99),max"
+      OIDC_TOKEN_URL: http://keycloak:8080/realms/fluxocaixa/protocol/openid-connect/token
+      OIDC_CLIENT_ID: fluxocaixa-loadtest
+      OIDC_CLIENT_SECRET: local-loadtest-only-secret
     volumes:
       - ../../tests/load/k6:/scripts:ro
       - ../../docs/evidencias:/results
     networks:
       - net-observ
+      - net-auth

@@ -13,7 +13,7 @@ COPY src/backend/ /src/backend/
 RUN dotnet publish backend/FluxoCaixa.EventPublisher/FluxoCaixa.EventPublisher.Worker/FluxoCaixa.EventPublisher.Worker.csproj \
     -c Release -o /app/publish --configfile /src/nuget.config
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "FluxoCaixa.EventPublisher.Worker.dll"]

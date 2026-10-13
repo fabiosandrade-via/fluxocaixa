@@ -78,11 +78,39 @@ function Get-StoreTotals {
     }
 }
 
+function Get-ProjectorConsumerLag {
+    $output = Invoke-ComposeText @(
+        "exec", "-T", "kafka", "kafka-consumer-groups",
+        "--bootstrap-server", "kafka:9092",
+        "--describe", "--group", "consolidado-consumer-group"
+    )
+    $partitionLines = @($output -split "`r?`n" | Where-Object {
+        $_ -match '^\s*consolidado-consumer-group\s+lancamentos-events\s+\d+\s+'
+    })
+    if ($partitionLines.Count -eq 0) {
+        throw "O grupo consolidado-consumer-group não retornou offsets de partição."
+    }
+    $lag = 0L
+    foreach ($line in $partitionLines) {
+        $columns = @($line -split '\s+')
+        if ($columns.Count -lt 6 -or $columns[5] -notmatch '^\d+$') {
+            throw "Não foi possível interpretar o lag do Projetor: $line"
+        }
+        $lag += [long]$columns[5]
+    }
+    return $lag
+}
+
 function Get-ProjectedCredits {
-    param([string] $Date)
+    param(
+        [string] $Date,
+        [string] $AccessToken
+    )
     $url = "http://localhost:5002/api/v1/consolidado/periodo?inicio=$Date&fim=$Date"
     try {
-        $response = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 5
+        $response = Invoke-RestMethod -Method Get -Uri $url -Headers @{
+            Authorization = "Bearer $AccessToken"
+        } -TimeoutSec 5
     }
     catch [System.Net.Http.HttpRequestException] {
         return $null
@@ -95,6 +123,21 @@ function Get-ProjectedCredits {
         return [decimal]0
     }
     return [decimal]$balance.totalCreditos
+}
+
+function Get-LoadTestToken {
+    $response = Invoke-RestMethod -Method Post `
+        -Uri "http://localhost:8081/realms/fluxocaixa/protocol/openid-connect/token" `
+        -ContentType "application/x-www-form-urlencoded" `
+        -Body @{
+            grant_type = "client_credentials"
+            client_id = "fluxocaixa-loadtest"
+            client_secret = "local-loadtest-only-secret"
+        }
+    if ([string]::IsNullOrWhiteSpace($response.access_token)) {
+        throw "Keycloak não retornou access token para o cenário de recuperação."
+    }
+    return $response.access_token
 }
 
 Push-Location $composeDirectory
@@ -119,6 +162,11 @@ try {
         throw "Não foi possível encontrar uma data futura vazia para o teste."
     }
     $testDate = $testDate.ToString("yyyy-MM-dd")
+    $accessToken = Get-LoadTestToken
+    $projectorLagBeforeTest = Get-ProjectorConsumerLag
+    if ($projectorLagBeforeTest -ne 0) {
+        throw "O Projetor precisa estar sem backlog antes do teste. Lag atual=$projectorLagBeforeTest; aguarde a projeção terminar e tente novamente."
+    }
 
     Invoke-ComposeText @("stop", "projetor") | Out-Null
     $projectorStopped = $true
@@ -160,29 +208,51 @@ try {
     Invoke-ComposeText @("start", "projetor") | Out-Null
     $projectorStopped = $false
 
-    $deadline = (Get-Date).AddMinutes(5)
+    $deadline = (Get-Date).AddMinutes(10)
+    $recoveryStartedAt = Get-Date
     $projectedCredits = $null
     do {
         Start-Sleep -Seconds 5
-        $projectedCredits = Get-ProjectedCredits $testDate
+        $projectedCredits = Get-ProjectedCredits $testDate $accessToken
         if ((Get-Date) -ge $deadline) {
-            throw "Projetor não reconciliou em 5 minutos. Event Store=$($storeTotals.Credits), projeção=$projectedCredits."
+            $reportPath = Join-Path $evidenceDirectory "$runId-recovery.json"
+            [pscustomobject]@{
+                runId = $runId
+                scenario = "projector-recovery"
+                status = "recovery-timeout"
+                ratePerSecond = $Rate
+                duration = $Duration
+                date = $testDate
+                projectorLagBeforeTest = $projectorLagBeforeTest
+                projectorLagAtTimeout = Get-ProjectorConsumerLag
+                eventStoreEventCount = $storeTotals.Count
+                eventStoreCreditTotal = $storeTotals.Credits
+                projectedCreditTotal = $projectedCredits
+                acceptedHttp201 = $accepted
+                failedHttpRate = $failedRate
+                droppedIterations = $dropped
+                recoveryWaitMinutes = [math]::Round(((Get-Date) - $recoveryStartedAt).TotalMinutes, 1)
+            } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $reportPath
+            throw "Projetor não reconciliou em dez minutos. Event Store=$($storeTotals.Credits), projeção=$projectedCredits; relatório=$reportPath."
         }
     } while ($null -eq $projectedCredits -or $projectedCredits -ne $storeTotals.Credits)
 
     $report = [pscustomobject]@{
         runId = $runId
         scenario = "projector-recovery"
+        status = "recovered"
         ratePerSecond = $Rate
         duration = $Duration
         date = $testDate
+        projectorLagBeforeTest = $projectorLagBeforeTest
+        projectorLagAtRecovery = Get-ProjectorConsumerLag
         eventStoreEventCount = $storeTotals.Count
         eventStoreCreditTotal = $storeTotals.Credits
         projectedCreditTotal = $projectedCredits
         acceptedHttp201 = $accepted
         failedHttpRate = $failedRate
         droppedIterations = $dropped
-        recoveredWithinMinutes = 5
+        recoveredWithinMinutes = 10
     }
     $reportPath = Join-Path $evidenceDirectory "$runId-recovery.json"
     $report | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $reportPath

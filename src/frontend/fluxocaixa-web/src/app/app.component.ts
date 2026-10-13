@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule } from '@angular/common';
+import { AuthService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
@@ -17,6 +18,11 @@ import { CommonModule } from '@angular/common';
          style="color:white;text-decoration:none;padding:8px 16px;border-radius:4px;">
         Consolidado
       </a>
+      <span style="margin-left:auto;font-size:14px;">{{ auth.username() }}</span>
+      <button type="button" (click)="auth.logout()"
+              style="margin-left:12px;padding:8px 12px;cursor:pointer;">
+        Sair
+      </button>
     </nav>
     <main style="padding:24px;max-width:1200px;margin:0 auto;">
       <router-outlet />
@@ -26,4 +32,6 @@ import { CommonModule } from '@angular/common';
     .nav-active { background: rgba(255,255,255,0.2) !important; }
   `]
 })
-export class AppComponent {}
+export class AppComponent {
+  readonly auth = inject(AuthService);
+}

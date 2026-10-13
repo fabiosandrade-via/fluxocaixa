@@ -1,10 +1,12 @@
 using FluxoCaixa.Consolidado.Application.Interfaces;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FluxoCaixa.Consolidado.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = "api.read")]
 [ApiVersion(1.0)]
 [Route("api/v{version:apiVersion}/consolidado")]
 [Produces("application/json")]
