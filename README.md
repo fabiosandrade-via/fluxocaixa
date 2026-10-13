@@ -142,35 +142,59 @@ As imagens de terceiros usadas no Compose são referenciadas diretamente em regi
 
 ### 1. Clonar e configurar variáveis
 
-```powershell
-git clone https://github.com/fabiosandrade-via/fluxocaixa.git
-Set-Location .\fluxocaixa
+Os comandos desta seção são para **Git Bash** (terminal Bash do Git for Windows), não para PowerShell. Abra o Git Bash e escolha a pasta-pai onde deseja criar o repositório. Por exemplo, se estiver em `/c`, o clone ficará em `C:\fluxocaixa`.
 
-# Na primeira configuração, copie o modelo rastreado para o arquivo local esperado pelo Compose.
-Copy-Item .\iac\docker\.env.example .\iac\docker\.env.local
-# Revise .env.local antes de subir os serviços.
+```bash
+git clone https://github.com/fabiosandrade-via/fluxocaixa.git
 ```
 
-Use `.env.local`, não `.env`: o Compose recebe esse arquivo explicitamente por `--env-file` e também o injeta nos workers por `env_file`. O `.env.example` contém as quatro configurações necessárias aos workers e serve de modelo; personalize os valores locais antes de compartilhar ou expor o ambiente. Execute `Copy-Item` somente quando ainda não existir um `.env.local`, para não sobrescrever configurações locais.
+Entre na pasta criada pelo clone. **A partir daqui, os comandos de configuração usam a raiz do repositório** (`fluxocaixa`):
+
+```bash
+cd fluxocaixa
+pwd
+```
+
+O `pwd` deve terminar em `/fluxocaixa`. Crie o arquivo local dos workers **a partir dessa raiz**:
+
+```bash
+cp iac/docker/.env.example iac/docker/.env.local
+```
+
+O Compose precisa de `iac/docker/.env.local`: ele é passado como `--env-file` e carregado pelos workers. O arquivo versionado `.env.example` é o modelo com as quatro configurações necessárias. Nesta cópia de demonstração local, os valores correspondentes também são definidos pelo Compose; não use essa configuração em produção. Não copie para `.env` — esse não é o arquivo usado pelos comandos abaixo. Faça essa cópia uma única vez: se `.env.local` já existir, preserve-o e não execute novamente o comando `cp`, pois ele o sobrescreveria.
 
 ### 2. Subir todos os serviços
 
-```powershell
-Set-Location .\iac\docker
+Agora, ainda no Git Bash, entre no diretório de infraestrutura. **Os comandos Docker Compose desta seção devem ser executados em `fluxocaixa/iac/docker`**:
+
+```bash
+cd iac/docker
+pwd
+```
+
+O `pwd` deve terminar em `/fluxocaixa/iac/docker`. Inicie os serviços:
+
+```bash
 docker compose --env-file .env.local up -d --build
 ```
 
 ### 3. Verificar status
 
-```powershell
+Execute em `fluxocaixa/iac/docker`:
+
+```bash
 docker compose --env-file .env.local ps
 ```
 
-Para acompanhar os logs, execute um comando por vez em um terminal (o modo `-f` permanece aberto):
+Para acompanhar os logs, execute **um comando por vez** no mesmo diretório. `-f` mantém o comando em execução; pressione `Ctrl+C` para sair da visualização dos logs sem parar os containers.
 
-```powershell
+```bash
 docker compose --env-file .env.local logs -f api-lancamentos
-# ou
+```
+
+Ou:
+
+```bash
 docker compose --env-file .env.local logs -f api-consolidado
 ```
 
@@ -186,11 +210,14 @@ Essas credenciais são públicas e exclusivas deste ambiente local; não as reut
 
 **Se alterar usuário ou senha no JSON depois que o realm já foi criado**, reiniciar o Keycloak não atualiza o realm existente: `--import-realm` importa a configuração inicial, mas não sincroniza alterações em realms já persistidos. Atualize a conta também pelo Admin Console do Keycloak ou pela Admin CLI (`kcadm.sh`). Não remova volumes do Compose como tentativa de atualizar credenciais, pois isso pode apagar os dados locais dos serviços.
 
-Para verificar a autorização nas duas APIs, execute com a infraestrutura ativa:
+Para verificar a autorização nas duas APIs, abra uma sessão **PowerShell** separada e posicione-se na raiz do repositório. Se o clone foi feito em `C:\fluxocaixa`, execute:
 
 ```powershell
+Set-Location C:\fluxocaixa
 .\tests\security\Test-ApiAuthorization.ps1
 ```
+
+Se clonou em outro local, substitua `C:\fluxocaixa` pelo caminho real da pasta `fluxocaixa`.
 
 O teste comprova `401` sem token, `200` com escopo de leitura, `403` ao tentar escrita com token somente de leitura e que um token com escopo de escrita passa pela autorização (o corpo intencionalmente inválido recebe `400`, sem criar lançamento). Os endpoints `/health`, `/metrics` e Swagger são recursos operacionais/documentais da configuração local; em produção devem ser privados ou desativados conforme a política do ambiente.
 
@@ -269,14 +296,21 @@ As imagens registram as telas da aplicação e os contratos expostos no Swagger.
 
 ## Parar e limpar
 
-Execute a partir da raiz do repositório:
+No Git Bash, execute a partir de `fluxocaixa` (a raiz do repositório):
 
-```powershell
-Set-Location .\iac\docker
+```bash
+cd /c/fluxocaixa/iac/docker
+pwd
+```
 
+O `pwd` deve terminar em `/fluxocaixa/iac/docker`. Em seguida, escolha **um** dos comandos abaixo:
+
+```bash
 # Parar mantendo volumes
 docker compose --env-file .env.local down
+```
 
+```bash
 # Parar e remover volumes (reset completo)
 # ATENÇÃO: isso apaga os dados locais de bancos, Kafka e observabilidade.
 docker compose --env-file .env.local down -v
