@@ -220,6 +220,8 @@ docker compose --env-file .env.local logs -f api-consolidado
 
 Essas credenciais são públicas e exclusivas deste ambiente local; não as reutilize, não exponha o Compose à internet e troque-as em qualquer ambiente compartilhado. A tela usa o tema local sem a imagem geométrica padrão, com fundo cinza-claro neutro. As credenciais de demonstração dos clientes de teste estão em `iac/docker/keycloak/realm-export/fluxocaixa-realm.json` e no serviço k6 do Compose; não as use em qualquer outro ambiente.
 
+![IAM](./docs/imagens/fluxocaixa-keycloak.png)
+
 **Se alterar usuário ou senha no JSON depois que o realm já foi criado**, reiniciar o Keycloak não atualiza o realm existente: `--import-realm` importa a configuração inicial, mas não sincroniza alterações em realms já persistidos. Atualize a conta também pelo Admin Console do Keycloak ou pela Admin CLI (`kcadm.sh`). Não remova volumes do Compose como tentativa de atualizar credenciais, pois isso pode apagar os dados locais dos serviços.
 
 Para verificar a autorização nas duas APIs, abra uma sessão **PowerShell** separada e posicione-se na raiz do repositório. Se o clone foi feito em `C:\fluxocaixa`, execute:
