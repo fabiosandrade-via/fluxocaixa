@@ -142,27 +142,35 @@ As imagens de terceiros usadas no Compose são referenciadas diretamente em regi
 
 ### 1. Clonar e configurar variáveis
 
-```bash
-git clone <repo-url>
-cd fluxocaixa
+```powershell
+git clone https://github.com/fabiosandrade-via/fluxocaixa.git
+Set-Location .\fluxocaixa
 
-# Copiar e revisar credenciais
-cp iac/docker/.env iac/docker/.env.local
-# Edite .env.local se necessário
+# Na primeira configuração, copie o modelo rastreado para o arquivo local esperado pelo Compose.
+Copy-Item .\iac\docker\.env.example .\iac\docker\.env.local
+# Revise .env.local antes de subir os serviços.
 ```
+
+Use `.env.local`, não `.env`: o Compose recebe esse arquivo explicitamente por `--env-file` e também o injeta nos workers por `env_file`. O `.env.example` contém as quatro configurações necessárias aos workers e serve de modelo; personalize os valores locais antes de compartilhar ou expor o ambiente. Execute `Copy-Item` somente quando ainda não existir um `.env.local`, para não sobrescrever configurações locais.
 
 ### 2. Subir todos os serviços
 
-```bash
-cd iac/docker
+```powershell
+Set-Location .\iac\docker
 docker compose --env-file .env.local up -d --build
 ```
 
 ### 3. Verificar status
 
-```bash
+```powershell
 docker compose --env-file .env.local ps
+```
+
+Para acompanhar os logs, execute um comando por vez em um terminal (o modo `-f` permanece aberto):
+
+```powershell
 docker compose --env-file .env.local logs -f api-lancamentos
+# ou
 docker compose --env-file .env.local logs -f api-consolidado
 ```
 
@@ -243,8 +251,6 @@ curl "http://localhost:5002/api/v1/consolidado/periodo?inicio=2025-01-01&fim=202
 
 ### Health checks
 
-### Health checks
-
 ```bash
 curl http://localhost:5001/health
 curl http://localhost:5002/health
@@ -263,13 +269,17 @@ As imagens registram as telas da aplicação e os contratos expostos no Swagger.
 
 ## Parar e limpar
 
-```bash
+Execute a partir da raiz do repositório:
+
+```powershell
+Set-Location .\iac\docker
+
 # Parar mantendo volumes
-docker compose down
+docker compose --env-file .env.local down
 
 # Parar e remover volumes (reset completo)
 # ATENÇÃO: isso apaga os dados locais de bancos, Kafka e observabilidade.
-docker compose down -v
+docker compose --env-file .env.local down -v
 ```
 
 ---
@@ -331,7 +341,7 @@ Suba a infraestrutura conforme **Como rodar localmente** e execute os comandos e
 
 O k6 determina o resultado dos thresholds. O resumo JSON é salvo em `docs/evidencias`; Prometheus recebe métricas por remote write e o dashboard Grafana (`http://localhost:3001`) permite filtrar execuções por `run_id`. A visualização complementa, mas não substitui, o resultado do teste. Os valores do case são medidos no ambiente local, não garantias de produção.
 
-No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. O Prometheus avalia alertas de indisponibilidade, backlog, idade e lag; Jaeger (`http://localhost:16686`) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`. Alertas são avaliados localmente; notificações e plantão ainda precisam ser configurados para produção.
+No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. As regras em `iac/docker/alert-rules.yml` detectam APIs/workers sem métricas, eventos pendentes ou envelhecidos, lag do Projetor acima de 500 registros e novos envios à DLQ. O Prometheus avalia esses alertas localmente; envio de notificações e plantão ainda precisam ser configurados para produção. Jaeger (`http://localhost:16686`) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`.
 
 | Execução registrada | Carga concluída | p95 observado | Falhas HTTP | Descartadas |
 |---|---:|---:|---:|---:|
