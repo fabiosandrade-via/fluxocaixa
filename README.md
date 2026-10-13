@@ -146,10 +146,9 @@ As imagens de terceiros usadas no Compose são referenciadas diretamente em regi
 git clone <repo-url>
 cd fluxocaixa
 
-# Criar apenas se ainda não existir; preservar o arquivo local existente.
-if [ ! -f iac/docker/.env.local ]; then
-  cp iac/docker/.env.example iac/docker/.env.local
-fi
+# Copiar e revisar credenciais
+cp iac/docker/.env iac/docker/.env.local
+# Edite .env.local se necessário
 ```
 
 ### 2. Subir todos os serviços
