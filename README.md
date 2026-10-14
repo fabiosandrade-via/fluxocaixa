@@ -391,6 +391,8 @@ O k6 determina o resultado dos thresholds. O resumo JSON é salvo em [`docs/evid
 
 No Compose, Prometheus coleta `/metrics` das APIs e dos workers a cada 15 segundos. O dashboard k6 apresenta vazão, latência p95/p99, falhas HTTP, respostas esperadas, requisições aceitas, iterações descartadas e disponibilidade das APIs. O dashboard de mensageria acompanha backlog e idade do Event Store, lag do Projetor, vazão publicada/projetada e eventos encaminhados à DLQ. As regras em `iac/docker/alert-rules.yml` detectam APIs/workers sem métricas, eventos pendentes ou envelhecidos, lag do Projetor acima de 500 registros e novos envios à DLQ. O Prometheus avalia esses alertas localmente; envio de notificações e plantão ainda precisam ser configurados para produção. [Jaeger](http://localhost:16686) permite inspecionar traces de processamento Kafka ponta a ponta. Os cenários k6 obtêm token do cliente local por `client_credentials`.
 
+![Metrica Jaeguer](./docs/imagens/fluxocaixa-jaeguer.png)
+
 | Execução registrada | Carga concluída | p95 observado | Falhas HTTP | Descartadas |
 |---|---:|---:|---:|---:|
 | Leitura — `read-20261013-134459` | 15.002 req / 50,003 req/s | 4,91 ms | 0% | 0 |
